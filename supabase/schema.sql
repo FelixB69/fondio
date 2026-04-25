@@ -55,10 +55,12 @@ create table if not exists public.sessions (
   challenger_mode boolean not null default false,
   messages jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz
 );
 
-create index if not exists sessions_user_idx on public.sessions (user_id, updated_at desc);
+create index if not exists sessions_user_idx on public.sessions (user_id, updated_at desc) where archived_at is null;
+create index if not exists sessions_archived_idx on public.sessions (user_id, archived_at desc) where archived_at is not null;
 
 alter table public.sessions enable row level security;
 

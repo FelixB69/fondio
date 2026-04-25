@@ -28,6 +28,7 @@ export function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [userEmail, setUserEmail] = useState<string | undefined>();
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [archivedSessions, setArchivedSessions] = useState<SessionListItem[]>([]);
   const [activeSession, setActiveSession] = useState<SessionFull | null>(null);
   const [pendingType, setPendingType] = useState<ProjectType | null>(null);
   const [taskOpenCount, setTaskOpenCount] = useState(0);
@@ -36,8 +37,18 @@ export function App() {
     const { data } = await supabase
       .from("sessions")
       .select("id, agent_id, project_type, title, updated_at")
+      .is("archived_at", null)
       .order("updated_at", { ascending: false });
     setSessions((data ?? []) as SessionListItem[]);
+  }, [supabase]);
+
+  const loadArchivedSessions = useCallback(async () => {
+    const { data } = await supabase
+      .from("sessions")
+      .select("id, agent_id, project_type, title, updated_at")
+      .not("archived_at", "is", null)
+      .order("archived_at", { ascending: false });
+    setArchivedSessions((data ?? []) as SessionListItem[]);
   }, [supabase]);
 
   const loadTaskCount = useCallback(async () => {
@@ -60,7 +71,7 @@ export function App() {
         return;
       }
       setUserEmail(session.user.email ?? undefined);
-      await Promise.all([loadSessions(), loadTaskCount()]);
+      await Promise.all([loadSessions(), loadArchivedSessions(), loadTaskCount()]);
       if (cancelled) return;
       setScreen("type");
     })();
@@ -69,6 +80,7 @@ export function App() {
       if (!session) {
         setScreen("auth");
         setSessions([]);
+        setArchivedSessions([]);
         setActiveSession(null);
         setUserEmail(undefined);
         setTaskOpenCount(0);
@@ -80,7 +92,7 @@ export function App() {
       cancelled = true;
       sub.subscription.unsubscribe();
     };
-  }, [supabase, loadSessions, loadTaskCount]);
+  }, [supabase, loadSessions, loadArchivedSessions, loadTaskCount]);
 
   // Recharge le compteur de tâches quand on passe sur l'écran tâches (les
   // mutations de status se font dans TasksScreen sans remonter ici).
@@ -148,6 +160,47 @@ export function App() {
     [supabase],
   );
 
+  const archiveSession = useCallback(
+    async (id: string) => {
+      const { error } = await supabase
+        .from("sessions")
+        .update({ archived_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) return;
+      const archived = sessions.find((s) => s.id === id);
+      setSessions((p) => p.filter((s) => s.id !== id));
+      if (archived) setArchivedSessions((p) => [archived, ...p]);
+      if (activeSession?.id === id) {
+        setActiveSession(null);
+        setScreen("type");
+      }
+    },
+    [supabase, sessions, activeSession?.id],
+  );
+
+  const restoreSession = useCallback(
+    async (id: string) => {
+      const { error } = await supabase
+        .from("sessions")
+        .update({ archived_at: null })
+        .eq("id", id);
+      if (error) return;
+      const restored = archivedSessions.find((s) => s.id === id);
+      setArchivedSessions((p) => p.filter((s) => s.id !== id));
+      if (restored) setSessions((p) => [restored, ...p]);
+    },
+    [supabase, archivedSessions],
+  );
+
+  const deleteSession = useCallback(
+    async (id: string) => {
+      const { error } = await supabase.from("sessions").delete().eq("id", id);
+      if (error) return;
+      setArchivedSessions((p) => p.filter((s) => s.id !== id));
+    },
+    [supabase],
+  );
+
   const handleSignOut = useCallback(async () => {
     await supabase.auth.signOut();
   }, [supabase]);
@@ -179,7 +232,7 @@ export function App() {
             data: { session },
           } = await supabase.auth.getSession();
           setUserEmail(session?.user.email ?? undefined);
-          await Promise.all([loadSessions(), loadTaskCount()]);
+          await Promise.all([loadSessions(), loadArchivedSessions(), loadTaskCount()]);
           setScreen("type");
         }}
       />
@@ -235,6 +288,7 @@ export function App() {
     <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden" }}>
       <Sidebar
         sessions={sessions}
+        archivedSessions={archivedSessions}
         activeSessionId={activeSession?.id ?? null}
         currentView={sidebarView}
         taskOpenCount={taskOpenCount}
@@ -246,6 +300,9 @@ export function App() {
         }}
         onNavigate={navigate}
         onSignOut={handleSignOut}
+        onArchiveSession={archiveSession}
+        onRestoreSession={restoreSession}
+        onDeleteSession={deleteSession}
         userEmail={userEmail}
       />
       <div style={{ flex: 1, display: "flex", overflow: "hidden", animation: "fndFadeIn 0.18s ease" }}>

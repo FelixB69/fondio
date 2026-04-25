@@ -92,6 +92,7 @@ export async function POST(req: Request) {
     .from("sessions")
     .select("id, agent_id, challenger_mode, messages, title")
     .eq("id", sessionId)
+    .eq("user_id", user.id)
     .single();
   if (sessErr || !session) {
     return NextResponse.json({ error: "Session introuvable." }, { status: 404 });
@@ -106,8 +107,37 @@ export async function POST(req: Request) {
   const userMsg: ChatMessage = { role: "user", content: userMessage.trim(), ts: now };
   const updatedHistory = [...history, userMsg];
 
+  // Récupère les sessions précédentes du même agent pour injecter le contexte.
+  const { data: prevSessions } = await supabase
+    .from("sessions")
+    .select("messages, title")
+    .eq("agent_id", session.agent_id)
+    .eq("user_id", user.id)
+    .neq("id", sessionId)
+    .order("updated_at", { ascending: false })
+    .limit(3);
+
+  let previousContext = "";
+  if (prevSessions && prevSessions.length > 0) {
+    const contextParts: string[] = [];
+    for (const prev of prevSessions) {
+      const msgs: ChatMessage[] = Array.isArray(prev.messages) ? prev.messages : [];
+      if (msgs.length === 0) continue;
+      const recent = msgs.slice(-6);
+      const excerpt = recent
+        .map((m) => `${m.role === "user" ? "Utilisateur" : "Assistant"} : ${m.content.slice(0, 400)}`)
+        .join("\n");
+      contextParts.push(`--- Session "${prev.title ?? "sans titre"}" ---\n${excerpt}`);
+    }
+    if (contextParts.length > 0) {
+      previousContext = `\n\nContexte des conversations précédentes avec cet agent (pour continuité) :\n${contextParts.join("\n\n")}`;
+    }
+  }
+
+  const systemPrompt = buildSystemPrompt(agent.id, session.challenger_mode) + previousContext;
+
   const ollamaMessages: OllamaMessage[] = [
-    { role: "system", content: buildSystemPrompt(agent.id, session.challenger_mode) },
+    { role: "system", content: systemPrompt },
     ...updatedHistory.map((m) => ({ role: m.role, content: m.content })),
   ];
 

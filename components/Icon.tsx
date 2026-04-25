@@ -33,7 +33,9 @@ export type IconName =
   | "building"
   | "laptop"
   | "refresh"
-  | "externalLink";
+  | "externalLink"
+  | "archive"
+  | "trash";
 
 interface IconProps {
   name: IconName;
@@ -217,6 +219,21 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
       <polyline points="15 3 21 3 21 9" />
       <line x1="10" y1="14" x2="21" y2="3" />
+    </>
+  ),
+  archive: (
+    <>
+      <polyline points="21 8 21 21 3 21 3 8" />
+      <rect x="1" y="3" width="22" height="5" />
+      <line x1="10" y1="12" x2="14" y2="12" />
+    </>
+  ),
+  trash: (
+    <>
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4h6v2" />
     </>
   ),
 };

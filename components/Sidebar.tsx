@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { AGENTS, AgentId, ProjectType, PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { Icon, IconName } from "./Icon";
@@ -17,6 +17,7 @@ export interface SessionListItem {
 
 interface SidebarProps {
   sessions: SessionListItem[];
+  archivedSessions: SessionListItem[];
   activeSessionId: string | null;
   currentView: SidebarView;
   taskOpenCount?: number;
@@ -24,6 +25,9 @@ interface SidebarProps {
   onNewSession: () => void;
   onNavigate: (view: Exclude<SidebarView, "chat">) => void;
   onSignOut: () => void;
+  onArchiveSession: (id: string) => void;
+  onRestoreSession: (id: string) => void;
+  onDeleteSession: (id: string) => void;
   userEmail?: string;
 }
 
@@ -104,6 +108,7 @@ function NavItem({
 
 export function Sidebar({
   sessions,
+  archivedSessions,
   activeSessionId,
   currentView,
   taskOpenCount,
@@ -111,8 +116,15 @@ export function Sidebar({
   onNewSession,
   onNavigate,
   onSignOut,
+  onArchiveSession,
+  onRestoreSession,
+  onDeleteSession,
   userEmail,
 }: SidebarProps) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [showArchives, setShowArchives] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
   const newBtnBase: CSSProperties = {
     width: "100%",
     display: "flex",
@@ -223,78 +235,265 @@ export function Sidebar({
           const agent = AGENTS[s.agent_id];
           const meta = PROJECT_TYPES[s.project_type];
           const active = currentView === "chat" && s.id === activeSessionId;
+          const hovered = hoveredId === s.id;
           return (
-            <button
+            <div
               key={s.id}
-              onClick={() => onSelectSession(s.id)}
+              style={{ position: "relative", marginBottom: 2 }}
+              onMouseEnter={() => setHoveredId(s.id)}
+              onMouseLeave={() => setHoveredId(null)}
+            >
+              <button
+                onClick={() => onSelectSession(s.id)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  gap: 8,
+                  padding: hovered ? "8px 34px 8px 10px" : "8px 10px",
+                  borderRadius: 8,
+                  border: "none",
+                  cursor: "pointer",
+                  background: active ? C.navyLight : hovered ? "#F1F5F9" : "transparent",
+                  textAlign: "left",
+                  fontFamily: "inherit",
+                  transition: "background 0.12s, padding 0.1s",
+                  alignItems: "flex-start",
+                }}
+              >
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 7,
+                    background: agent?.bg ?? C.bg,
+                    border: `1.5px solid ${agent?.color ?? C.border}25`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    fontSize: 13,
+                  }}
+                >
+                  {agent?.emoji ?? "❓"}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: active ? 700 : 600,
+                      color: C.text,
+                      lineHeight: 1.3,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                    }}
+                  >
+                    {s.title ?? "Nouvelle session"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      color: meta?.color ?? C.textMute,
+                      fontWeight: 600,
+                      marginTop: 2,
+                    }}
+                  >
+                    {agent?.name} · {formatRelative(s.updated_at)}
+                  </div>
+                </div>
+              </button>
+
+              {hovered && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onArchiveSession(s.id);
+                  }}
+                  title="Archiver"
+                  style={{
+                    position: "absolute",
+                    right: 6,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 4,
+                    borderRadius: 5,
+                    color: C.textMute,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = C.navy;
+                    e.currentTarget.style.background = C.navyLight;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = C.textMute;
+                    e.currentTarget.style.background = "none";
+                  }}
+                >
+                  <Icon name="archive" size={13} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Archives section */}
+        {archivedSessions.length > 0 && (
+          <>
+            <div style={{ margin: "8px 4px 4px", borderTop: `1px solid ${C.border}` }} />
+            <button
+              onClick={() => setShowArchives((p) => !p)}
               style={{
                 width: "100%",
                 display: "flex",
-                gap: 8,
-                padding: "8px 10px",
-                borderRadius: 8,
+                alignItems: "center",
+                gap: 5,
+                padding: "6px 6px 6px",
+                background: "none",
                 border: "none",
                 cursor: "pointer",
-                background: active ? C.navyLight : "transparent",
-                textAlign: "left",
+                fontSize: 10.5,
+                fontWeight: 700,
+                color: C.textMute,
+                letterSpacing: "0.07em",
+                textTransform: "uppercase",
                 fontFamily: "inherit",
-                marginBottom: 2,
-                transition: "background 0.12s",
-                alignItems: "flex-start",
-              }}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = "#F1F5F9";
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.background = "transparent";
               }}
             >
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 7,
-                  background: agent?.bg ?? C.bg,
-                  border: `1.5px solid ${agent?.color ?? C.border}25`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                  fontSize: 13,
-                }}
-              >
-                {agent?.emoji ?? "❓"}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 12.5,
-                    fontWeight: active ? 700 : 600,
-                    color: C.text,
-                    lineHeight: 1.3,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical",
-                  }}
-                >
-                  {s.title ?? "Nouvelle session"}
-                </div>
-                <div
-                  style={{
-                    fontSize: 10.5,
-                    color: meta?.color ?? C.textMute,
-                    fontWeight: 600,
-                    marginTop: 2,
-                  }}
-                >
-                  {agent?.name} · {formatRelative(s.updated_at)}
-                </div>
-              </div>
+              <Icon
+                name={showArchives ? "chevDown" : "chevRight"}
+                size={11}
+                color={C.textMute}
+              />
+              Archives ({archivedSessions.length})
             </button>
-          );
-        })}
+
+            {showArchives &&
+              archivedSessions.map((s) => {
+                const agent = AGENTS[s.agent_id];
+                const isConfirming = confirmDeleteId === s.id;
+                return (
+                  <div
+                    key={s.id}
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      padding: "6px 8px",
+                      borderRadius: 7,
+                      marginBottom: 2,
+                      alignItems: "center",
+                      background: "#F8FAFC",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 6,
+                        background: agent?.bg ?? C.bg,
+                        border: `1.5px solid ${agent?.color ?? C.border}25`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 11,
+                        flexShrink: 0,
+                        opacity: 0.7,
+                      }}
+                    >
+                      {agent?.emoji ?? "❓"}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: 500,
+                          color: C.textSub,
+                          lineHeight: 1.3,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {s.title ?? "Nouvelle session"}
+                      </div>
+                    </div>
+
+                    {/* Restore */}
+                    <button
+                      onClick={() => {
+                        setConfirmDeleteId(null);
+                        onRestoreSession(s.id);
+                      }}
+                      title="Restaurer"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 3,
+                        borderRadius: 4,
+                        color: C.textMute,
+                        display: "flex",
+                        alignItems: "center",
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = C.navy;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = C.textMute;
+                      }}
+                    >
+                      <Icon name="refresh" size={12} />
+                    </button>
+
+                    {/* Delete permanently */}
+                    <button
+                      onClick={() => {
+                        if (isConfirming) {
+                          setConfirmDeleteId(null);
+                          onDeleteSession(s.id);
+                        } else {
+                          setConfirmDeleteId(s.id);
+                        }
+                      }}
+                      title={isConfirming ? "Cliquer pour confirmer la suppression" : "Supprimer définitivement"}
+                      style={{
+                        background: isConfirming ? "#FEF0F4" : "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "3px 5px",
+                        borderRadius: 4,
+                        color: isConfirming ? C.pink : C.textMute,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 3,
+                        flexShrink: 0,
+                        fontSize: 10,
+                        fontFamily: "inherit",
+                        fontWeight: isConfirming ? 700 : 400,
+                        transition: "all 0.12s",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isConfirming) e.currentTarget.style.color = C.pink;
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isConfirming) e.currentTarget.style.color = C.textMute;
+                      }}
+                    >
+                      <Icon name="trash" size={12} color={isConfirming ? C.pink : "currentColor"} />
+                      {isConfirming && <span>Confirmer</span>}
+                    </button>
+                  </div>
+                );
+              })}
+          </>
+        )}
       </div>
 
       {/* User footer */}
