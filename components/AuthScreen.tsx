@@ -1,27 +1,11 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
+import { LuLoader, LuArrowLeft, LuCheck, LuBrain, LuChartBar, LuDollarSign, LuTarget, LuRocket } from "react-icons/lu";
+import type { IconType } from "react-icons";
 import { AGENTS, AgentId } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
-import { Icon } from "./Icon";
-
-function LoadingSpinner() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="white"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      style={{ animation: "fndSpin 0.7s linear infinite" }}
-    >
-      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-    </svg>
-  );
-}
 
 function AuthBrand() {
   const featuredIds: AgentId[] = ["strategist", "analyst", "finance", "coach", "mentor"];
@@ -61,27 +45,8 @@ function AuthBrand() {
         }}
       />
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 56, position: "relative" }}>
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: "rgba(255,255,255,0.12)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            backdropFilter: "blur(4px)",
-          }}
-        >
-          <Icon name="sparkles" size={18} color="white" />
-        </div>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 20, color: "white", letterSpacing: "-0.03em", lineHeight: 1 }}>
-            fondio
-          </div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em" }}>CONSEIL IA</div>
-        </div>
+      <div style={{ marginBottom: 56, position: "relative" }}>
+        <img src="/fondio-logo.png" alt="Fondio" style={{ height: 60, width: "auto", display: "block" }} />
       </div>
 
       <div style={{ position: "relative", marginBottom: 40 }}>
@@ -95,12 +60,12 @@ function AuthBrand() {
             lineHeight: 1.25,
           }}
         >
-          Tes conseillers IA
+          Vos conseillers IA
           <br />
-          spécialisés, en local.
+          spécialisés, en local (100% confidentiel).
         </h2>
         <p style={{ margin: 0, fontSize: 14.5, color: "rgba(255,255,255,0.6)", lineHeight: 1.65 }}>
-          Stratégie, finance, lancement, reconversion. Sessions structurées avec livrables et mode challenger. Tourne sur Llama3 local.
+          Stratégie, finance, lancement, reconversion. Sessions structurées avec livrables et mode challenger. Tourne sur Llama3 & Qwen2.5-Coder, tout en restant sur nos serveurs privés.
         </p>
       </div>
 
@@ -378,7 +343,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
       <button onClick={handleSubmit} disabled={loading} style={{ ...primaryBtn, opacity: loading ? 0.7 : 1 }}>
         {loading ? (
           <>
-            <LoadingSpinner /> Connexion…
+            <LuLoader size={16} style={{ animation: "fndSpin 0.7s linear infinite" }} /> Connexion…
           </>
         ) : (
           "Se connecter →"
@@ -442,7 +407,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
       <button onClick={handleSubmit} disabled={loading} style={{ ...primaryBtn, marginTop: 4, opacity: loading ? 0.7 : 1 }}>
         {loading ? (
           <>
-            <LoadingSpinner /> Création…
+            <LuLoader size={16} style={{ animation: "fndSpin 0.7s linear infinite" }} /> Création…
           </>
         ) : (
           "Créer mon compte →"
@@ -468,13 +433,13 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
           fontFamily: "inherit",
         }}
       >
-        <Icon name="arrowLeft" size={14} color={C.textSub} /> Retour
+        <LuArrowLeft size={14} color={C.textSub} /> Retour
       </button>
       <h2 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 800, color: C.text, letterSpacing: "-0.03em" }}>
         Mot de passe oublié
       </h2>
       <p style={{ margin: "0 0 24px", color: C.textSub, fontSize: 14, lineHeight: 1.6 }}>
-        Entrez votre adresse e-mail, nous vous enverrons un lien de réinitialisation.
+        Veuillez saisir votre adresse e-mail, nous vous enverrons un lien de réinitialisation.
       </p>
       <InputField
         label="Adresse e-mail"
@@ -487,7 +452,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
       <button onClick={handleForgot} disabled={loading} style={{ ...primaryBtn, opacity: loading ? 0.7 : 1 }}>
         {loading ? (
           <>
-            <LoadingSpinner /> Envoi…
+            <LuLoader size={16} style={{ animation: "fndSpin 0.7s linear infinite" }} /> Envoi…
           </>
         ) : (
           "Envoyer le lien →"
@@ -511,13 +476,13 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
           border: `1.5px solid ${C.mint}50`,
         }}
       >
-        <Icon name="check" size={28} color={C.mint} />
+        <LuCheck size={28} color={C.mint} />
       </div>
       <h2 style={{ margin: "0 0 10px", fontSize: 22, fontWeight: 800, color: C.text, letterSpacing: "-0.03em" }}>
         E-mail envoyé !
       </h2>
       <p style={{ margin: "0 0 28px", color: C.textSub, fontSize: 14, lineHeight: 1.65 }}>
-        Vérifiez votre boîte mail et cliquez sur le lien pour finaliser.
+        Veuillez vérifier votre boîte mail et cliquer sur le lien pour finaliser votre inscription.
       </p>
       <button
         onClick={() => setView("login")}

@@ -155,34 +155,8 @@ export function Sidebar({
       }}
     >
       {/* Logo */}
-      <div style={{ padding: "18px 16px 14px", borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <svg
-            width="30"
-            height="30"
-            viewBox="0 0 30 30"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            style={{ flexShrink: 0 }}
-          >
-            <circle cx="15" cy="15" r="13" stroke="#CC00CC" strokeWidth="1" />
-            <circle cx="15" cy="15" r="7" stroke="#00CCCC" strokeWidth="1" />
-          </svg>
-          <div>
-            <div
-              style={{
-                fontWeight: 800,
-                fontSize: 16,
-                color: C.text,
-                letterSpacing: "-0.03em",
-                lineHeight: 1,
-              }}
-            >
-              fondio
-            </div>
-            <div style={{ fontSize: 10, color: C.textMute, letterSpacing: "0.04em" }}>CONSEIL IA</div>
-          </div>
-        </div>
+      <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${C.border}` }}>
+        <img src="/fondio.gif" alt="Fondio" style={{ height: 60, width: "auto", display: "block" }} />
       </div>
 
       {/* New session */}
