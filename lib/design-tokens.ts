@@ -1,0 +1,17 @@
+export const C = {
+  navy: "#264573",
+  navyLight: "#EEF2FA",
+  navyMid: "#D6E0F0",
+  pink: "#E8396A",
+  pinkLight: "#FEF0F4",
+  mint: "#3ECFAF",
+  mintLight: "#EDFAF7",
+  text: "#1A2438",
+  textSub: "#64748B",
+  textMute: "#94A3B8",
+  border: "#E8ECF1",
+  bg: "#F6F8FC",
+  white: "#FFFFFF",
+  shadow: "0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04)",
+  shadowMd: "0 4px 16px rgba(0,0,0,0.10)",
+} as const;
