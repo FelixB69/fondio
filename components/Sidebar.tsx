@@ -14,6 +14,7 @@ export interface SessionListItem {
   project_type: ProjectType;
   title: string | null;
   updated_at: string;
+  panel_agent_ids?: string[] | null;
 }
 
 interface SidebarProps {
@@ -238,6 +239,7 @@ export function Sidebar({
           </div>
         )}
         {sessions.map((s) => {
+          const isPanel = Array.isArray(s.panel_agent_ids) && s.panel_agent_ids.length > 1;
           const agent = AGENTS[s.agent_id];
           const meta = PROJECT_TYPES[s.project_type];
           const active = currentView === "chat" && s.id === activeSessionId;
@@ -266,22 +268,48 @@ export function Sidebar({
                   alignItems: "flex-start",
                 }}
               >
-                <div
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: 7,
-                    background: agent?.bg ?? C.bg,
-                    border: `1.5px solid ${agent?.color ?? C.border}25`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    fontSize: 13,
-                  }}
-                >
-                  {agent?.emoji ?? "❓"}
-                </div>
+                {isPanel ? (
+                  <div style={{ display: "flex", flexShrink: 0 }}>
+                    {(s.panel_agent_ids ?? []).slice(0, 3).map((id, i) => (
+                      <div
+                        key={id}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: 5,
+                          background: AGENTS[id as AgentId]?.bg ?? C.bg,
+                          border: "1.5px solid white",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 10,
+                          marginLeft: i > 0 ? -6 : 0,
+                          position: "relative",
+                          zIndex: 3 - i,
+                        }}
+                      >
+                        <Icon name={(AGENTS[id as AgentId]?.icon ?? "sparkles") as IconName} size={10} color={AGENTS[id as AgentId]?.color ?? C.text} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 7,
+                      background: agent?.bg ?? C.bg,
+                      border: `1.5px solid ${agent?.color ?? C.border}25`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      fontSize: 13,
+                    }}
+                  >
+                    <Icon name={(agent?.icon ?? "sparkles") as IconName} size={13} color={agent?.color ?? C.text} />
+                  </div>
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{
@@ -306,7 +334,7 @@ export function Sidebar({
                       marginTop: 2,
                     }}
                   >
-                    {agent?.name} · {formatRelative(s.updated_at)}
+                    {isPanel ? `Panel · ${s.panel_agent_ids?.length} agents` : agent?.name} · {formatRelative(s.updated_at)}
                   </div>
                 </div>
               </button>
@@ -412,7 +440,7 @@ export function Sidebar({
                         opacity: 0.7,
                       }}
                     >
-                      {agent?.emoji ?? "❓"}
+                      <Icon name={(agent?.icon ?? "sparkles") as IconName} size={11} color={agent?.color ?? C.text} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div

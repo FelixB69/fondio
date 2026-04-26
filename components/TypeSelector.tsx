@@ -3,7 +3,7 @@
 import { PROJECT_TYPES, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
-import { Icon } from "./Icon";
+import { Icon, IconName } from "./Icon";
 
 export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => void }) {
   const isMobile = useIsMobile();
@@ -93,7 +93,7 @@ export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => vo
                   marginBottom: 14,
                 }}
               >
-                {t.emoji}
+                <Icon name={t.icon as IconName} size={22} color={t.color} />
               </div>
               <div
                 style={{

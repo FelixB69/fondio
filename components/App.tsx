@@ -10,6 +10,7 @@ import { AuthScreen } from "./AuthScreen";
 import { ChatSession } from "./ChatSession";
 import { Icon } from "./Icon";
 import { LibraryScreen } from "./LibraryScreen";
+import { MultiAgentSession } from "./MultiAgentSession";
 import { Sidebar, SessionListItem, SidebarView } from "./Sidebar";
 import { TasksScreen } from "./TasksScreen";
 import { TypeSelector } from "./TypeSelector";
@@ -24,6 +25,7 @@ interface SessionFull {
   challenger_mode: boolean;
   messages: ChatMessage[];
   updated_at: string;
+  panel_agent_ids?: string[] | null;
 }
 
 export function App() {
@@ -41,7 +43,7 @@ export function App() {
   const loadSessions = useCallback(async () => {
     const { data } = await supabase
       .from("sessions")
-      .select("id, agent_id, project_type, title, updated_at")
+      .select("id, agent_id, project_type, title, updated_at, panel_agent_ids")
       .is("archived_at", null)
       .order("updated_at", { ascending: false });
     setSessions((data ?? []) as SessionListItem[]);
@@ -50,7 +52,7 @@ export function App() {
   const loadArchivedSessions = useCallback(async () => {
     const { data } = await supabase
       .from("sessions")
-      .select("id, agent_id, project_type, title, updated_at")
+      .select("id, agent_id, project_type, title, updated_at, panel_agent_ids")
       .not("archived_at", "is", null)
       .order("archived_at", { ascending: false });
     setArchivedSessions((data ?? []) as SessionListItem[]);
@@ -109,7 +111,7 @@ export function App() {
     async (id: string) => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, project_type, agent_id, title, challenger_mode, messages, updated_at")
+        .select("id, project_type, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids")
         .eq("id", id)
         .single();
       if (error || !data) return;
@@ -121,6 +123,7 @@ export function App() {
         challenger_mode: data.challenger_mode,
         messages: Array.isArray(data.messages) ? (data.messages as ChatMessage[]) : [],
         updated_at: data.updated_at,
+        panel_agent_ids: Array.isArray(data.panel_agent_ids) ? data.panel_agent_ids : null,
       });
       setScreen("chat");
     },
@@ -128,27 +131,38 @@ export function App() {
   );
 
   const startNewSession = useCallback(
-    async (agentId: AgentId, type: ProjectType) => {
+    async (agentIdOrIds: AgentId | AgentId[], type: ProjectType) => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+
+      const isPanel = Array.isArray(agentIdOrIds);
+      const primaryAgentId = isPanel ? agentIdOrIds[0] : agentIdOrIds;
 
       const { data, error } = await supabase
         .from("sessions")
         .insert({
           user_id: user.id,
           project_type: type,
-          agent_id: agentId,
+          agent_id: primaryAgentId,
           challenger_mode: false,
           messages: [],
+          panel_agent_ids: isPanel ? agentIdOrIds : null,
         })
-        .select("id, project_type, agent_id, title, challenger_mode, messages, updated_at")
+        .select("id, project_type, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids")
         .single();
       if (error || !data) return;
 
       setSessions((p) => [
-        { id: data.id, agent_id: data.agent_id, project_type: data.project_type, title: data.title, updated_at: data.updated_at },
+        {
+          id: data.id,
+          agent_id: data.agent_id,
+          project_type: data.project_type,
+          title: data.title,
+          updated_at: data.updated_at,
+          panel_agent_ids: Array.isArray(data.panel_agent_ids) ? data.panel_agent_ids : null,
+        },
         ...p,
       ]);
       setActiveSession({
@@ -159,6 +173,7 @@ export function App() {
         challenger_mode: data.challenger_mode,
         messages: [],
         updated_at: data.updated_at,
+        panel_agent_ids: Array.isArray(data.panel_agent_ids) ? data.panel_agent_ids : null,
       });
       setScreen("chat");
     },
@@ -263,7 +278,7 @@ export function App() {
         <AgentSelector
           type={pendingType}
           onBack={() => setScreen("type")}
-          onSelect={(agentId) => startNewSession(agentId, pendingType)}
+          onSelect={(agentIdOrIds) => startNewSession(agentIdOrIds, pendingType)}
         />
       );
     }
@@ -274,6 +289,19 @@ export function App() {
       return <TasksScreen onOpenSession={openSession} />;
     }
     if (screen === "chat" && activeSession) {
+      const panelIds = activeSession.panel_agent_ids;
+      if (panelIds && panelIds.length > 1) {
+        return (
+          <MultiAgentSession
+            sessionId={activeSession.id}
+            panelAgentIds={panelIds as AgentId[]}
+            projectType={activeSession.project_type}
+            initialMessages={activeSession.messages}
+            onBack={() => setScreen("type")}
+            onTitleChange={handleTitleChange}
+          />
+        );
+      }
       return (
         <ChatSession
           sessionId={activeSession.id}
@@ -353,7 +381,7 @@ export function App() {
             >
               <Icon name="menu" size={22} color={C.text} />
             </button>
-            <img src="/fondio.gif" alt="Fondio" style={{ height: 36, width: "auto" }} />
+            <img src="/fondio.gif" alt="Fondio" style={{ height: 33, width: "auto" }} />
           </div>
         )}
         <div style={{ flex: 1, display: "flex", overflow: "hidden", animation: "fndFadeIn 0.18s ease" }}>

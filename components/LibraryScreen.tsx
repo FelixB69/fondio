@@ -5,7 +5,7 @@ import { AGENTS, AgentId, ChatMessage, ProjectType, PROJECT_TYPES } from "@/lib/
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
-import { Icon } from "./Icon";
+import { Icon, IconName } from "./Icon";
 
 interface DeliverableEntry {
   id: string;
@@ -180,10 +180,10 @@ export function LibraryScreen({
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {([
-            ["all", "Tous"],
-            ["pro", "💼 Pro"],
-            ["perso", "🌱 Perso"],
-          ] as const).map(([id, label]) => {
+            { id: "all", label: "Tous", icon: null },
+            { id: "pro", label: "Pro", icon: "briefcase" },
+            { id: "perso", label: "Perso", icon: "sprout" },
+          ] as const).map(({ id, label, icon }) => {
             const active = filter === id;
             return (
               <button
@@ -201,6 +201,7 @@ export function LibraryScreen({
                   fontFamily: "inherit",
                 }}
               >
+                {icon && <Icon name={icon as IconName} size={12} style={{ marginRight: 4 }} />}
                 {label}
               </button>
             );
@@ -244,7 +245,7 @@ export function LibraryScreen({
                   fontFamily: "inherit",
                 }}
               >
-                <span style={{ fontSize: 13 }}>{agent.emoji}</span>
+                <Icon name={agent.icon as IconName} size={13} color={agent.color} />
                 {agent.name}
               </button>
             );
@@ -306,7 +307,7 @@ export function LibraryScreen({
                       flexShrink: 0,
                     }}
                   >
-                    {agent.emoji}
+                    <Icon name={agent.icon as IconName} size={16} color={agent.color} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
@@ -334,7 +335,7 @@ export function LibraryScreen({
                       <span style={{ color: agent.color, fontWeight: 600 }}>{agent.name}</span>
                       <span style={{ color: C.textMute }}>·</span>
                       <span style={{ color: meta.color, fontWeight: 600 }}>
-                        {meta.emoji} {meta.name}
+                        <Icon name={meta.icon as IconName} size={11} color={meta.color} /> {meta.name}
                       </span>
                       <span style={{ color: C.textMute }}>·</span>
                       <span>{formatRelative(g.ts)}</span>

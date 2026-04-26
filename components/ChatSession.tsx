@@ -330,10 +330,14 @@ function AgentAvatar({ agentId, size = 32 }: { agentId: AgentId; size?: number }
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
-        fontSize: size * 0.5,
+        fontSize: Math.floor(size * 0.45),
+        fontWeight: 800,
+        color: agent.color,
+        fontFamily: "inherit",
+        letterSpacing: "-0.02em",
       }}
     >
-      {agent.emoji}
+      {agent.firstName[0]}
     </div>
   );
 }
@@ -511,7 +515,7 @@ function MessageBubble({
       <AgentAvatar agentId={agentId} size={28} />
       <div style={{ flex: 1, maxWidth: "82%" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: agent.color }}>{agent.name}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: agent.color }}>{agent.firstName}</span>
           <span style={{ fontSize: 11, color: C.textMute }}>{formatTs(msg.ts)}</span>
         </div>
         <div
@@ -713,9 +717,9 @@ export function ChatSession({
         <AgentAvatar agentId={agentId} size={isMobile ? 28 : 34} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: isMobile ? 13 : 14.5, fontWeight: 800, color: C.text, letterSpacing: "-0.02em" }}>
-            {agent.name}
+            {agent.firstName}
           </div>
-          {!isMobile && <div style={{ fontSize: 11.5, color: C.textSub }}>{agent.desc}</div>}
+          {!isMobile && <div style={{ fontSize: 11.5, color: C.textSub }}>{agent.name} · {agent.desc}</div>}
         </div>
 
         {!isMobile && (
@@ -732,7 +736,7 @@ export function ChatSession({
               gap: 5,
             }}
           >
-            <span>{typeMeta.emoji}</span>
+            <Icon name={typeMeta.icon as IconName} size={11} color={typeMeta.color} />
             {typeMeta.name}
           </span>
         )}
@@ -812,7 +816,7 @@ export function ChatSession({
               lineHeight: 1.6,
             }}
           >
-            Dis à <strong style={{ color: agent.color }}>{agent.name}</strong> sur quoi tu veux travailler aujourd'hui.
+            Dis à <strong style={{ color: agent.color }}>{agent.firstName}</strong> sur quoi tu veux travailler aujourd'hui.
             <br />
             Plus tu donnes de contexte, plus la session sera utile.
           </div>
@@ -881,7 +885,7 @@ export function ChatSession({
                 handleSend();
               }
             }}
-            placeholder={`Pose ta question à ${agent.name}…`}
+            placeholder={`Pose ta question à ${agent.firstName}…`}
             rows={1}
             style={{
               flex: 1,

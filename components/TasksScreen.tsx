@@ -5,7 +5,7 @@ import { AGENTS, AgentId, Task, TaskStatus } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
-import { Icon } from "./Icon";
+import { Icon, IconName } from "./Icon";
 
 const STATUS_META: Record<TaskStatus, { label: string; color: string; bg: string }> = {
   todo: { label: "À faire", color: C.navy, bg: C.navyLight },
@@ -328,7 +328,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
                               gap: 4,
                             }}
                           >
-                            <span>{agent.emoji}</span>
+                            <Icon name={agent.icon as IconName} size={10} color={agent.color} />
                             {agent.name}
                             {task.session_id && (
                               <button

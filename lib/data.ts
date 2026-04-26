@@ -16,8 +16,8 @@ export type AgentId =
 
 export interface Agent {
   id: AgentId;
+  firstName: string;
   name: string;
-  emoji: string;
   icon: string; // IconName
   color: string;
   bg: string;
@@ -47,6 +47,9 @@ export interface ChatMessage {
   // Si absent ou vide, on retombe sur `deliverables` (titres bruts).
   artifacts?: Artifact[];
   ts: string;
+  // Panel multi-agent : identifie quel agent a émis ce message.
+  // "__synthesis__" pour le message de synthèse final.
+  agentId?: AgentId | "__synthesis__";
 }
 
 export type Artifact =
@@ -138,8 +141,8 @@ CHALLENGES:
 Sois exigeant, pointe les zones de flou, ne flatte pas.
 `.trim();
 
-function buildPrompt(role: string, style: string, deliverables: string): string {
-  return `${role}
+function buildPrompt(firstName: string, role: string, style: string, deliverables: string): string {
+  return `Tu t'appelles ${firstName}. ${role}
 
 Style : ${style}
 
@@ -154,15 +157,16 @@ export const AGENTS: Record<AgentId, Agent> = {
   // -------------------------------- PRO ---------------------------------
   strategist: {
     id: "strategist",
+    firstName: "Karim",
     name: "Stratège",
-    emoji: "🧠",
     icon: "chart",
     color: "#264573",
     bg: "#EEF2FA",
     type: "pro",
-    desc: "Vision long terme, positionnement, modèle économique.",
-    tags: ["vision", "positionnement", "business model"],
+    desc: "Où aller, comment se différencier, sur quel modèle construire.",
+    tags: ["direction", "différenciation", "croissance"],
     systemPrompt: buildPrompt(
+      "Karim",
       "Tu es un conseiller stratégique senior qui travaille avec des fondateurs et dirigeants sur leur vision, leur positionnement et leur modèle économique.",
       "direct, structuré, va à l'essentiel. Pose des questions précises avant de conclure.",
       "frameworks (Porter, Blue Ocean, Business Model Canvas), matrices, listes de décisions, hypothèses à tester.",
@@ -170,15 +174,16 @@ export const AGENTS: Record<AgentId, Agent> = {
   },
   analyst: {
     id: "analyst",
+    firstName: "Yuki",
     name: "Analyste marché",
-    emoji: "📊",
     icon: "chart",
     color: "#E8396A",
     bg: "#FEF0F4",
     type: "pro",
-    desc: "TAM/SAM/SOM, concurrents, tendances, pricing.",
-    tags: ["TAM/SAM/SOM", "pricing", "veille"],
+    desc: "Comprendre son marché, ses concurrents et fixer les bons prix.",
+    tags: ["marché", "concurrents", "opportunités"],
     systemPrompt: buildPrompt(
+      "Yuki",
       "Tu es un analyste marché senior. Tu chiffres les opportunités, analyses la concurrence et conseilles sur le pricing.",
       "factuel, chiffré, méthodique. Quand tu n'as pas de données, tu poses les bonnes hypothèses.",
       "TAM/SAM/SOM, mapping concurrentiel, grilles de pricing, segmentation, benchmarks.",
@@ -186,31 +191,33 @@ export const AGENTS: Record<AgentId, Agent> = {
   },
   finance: {
     id: "finance",
-    name: "Conseiller financier",
-    emoji: "💰",
+    firstName: "Amara",
+    name: "Conseillère financière",
     icon: "balance",
     color: "#0E9F88",
     bg: "#EDFAF7",
     type: "pro",
-    desc: "Projections, unit economics, structure de coûts.",
-    tags: ["unit economics", "P&L", "fundraising"],
+    desc: "Comprendre ses chiffres, projeter sa rentabilité, préparer une levée.",
+    tags: ["chiffres", "rentabilité", "financement"],
     systemPrompt: buildPrompt(
-      "Tu es un conseiller financier expert en startups et PME. Tu travailles unit economics, projections, structure de coûts et préparation à la levée.",
-      "rigoureux, prudent sur les hypothèses, demande toujours les chiffres clés (CAC, LTV, marge brute, runway).",
+      "Amara",
+      "Tu es une conseillère financière experte en startups et PME. Tu travailles unit economics, projections, structure de coûts et préparation à la levée.",
+      "rigoureuse, prudente sur les hypothèses, demande toujours les chiffres clés (CAC, LTV, marge brute, runway).",
       "tableaux de P&L simplifié, calculs d'unit economics (CAC/LTV, payback), scénarios de financement, ratios.",
     ),
   },
   cto: {
     id: "cto",
+    firstName: "Félix",
     name: "CTO de poche",
-    emoji: "⚙️",
     icon: "code",
     color: "#7C3AED",
     bg: "#F5F0FF",
     type: "pro",
-    desc: "Stack tech, architecture, roadmap produit, dette technique.",
-    tags: ["stack", "architecture", "dette tech"],
+    desc: "Choisir la bonne techno, structurer son produit, éviter les erreurs coûteuses.",
+    tags: ["technologie", "produit", "roadmap"],
     systemPrompt: buildPrompt(
+      "Félix",
       "Tu es un CTO expérimenté qui conseille sur les choix de stack, l'architecture, la roadmap technique et la gestion de la dette.",
       "pragmatique, anti-hype, pèse coût/bénéfice. Tu privilégies la simplicité tant que ça scale.",
       "schémas d'architecture en texte, listes de choix techno motivés, roadmap technique, plan de remboursement de dette.",
@@ -219,31 +226,33 @@ export const AGENTS: Record<AgentId, Agent> = {
   // -------------------------------- PERSO -------------------------------
   coach: {
     id: "coach",
+    firstName: "Mei",
     name: "Coach de projet",
-    emoji: "🎯",
     icon: "tasks",
     color: "#0E9F88",
     bg: "#EDFAF7",
     type: "perso",
-    desc: "Clarification d'objectif, motivation, structure d'action.",
-    tags: ["objectif", "motivation", "plan"],
+    desc: "Mettre de la clarté sur son objectif et vraiment passer à l'action.",
+    tags: ["objectif", "motivation", "action"],
     systemPrompt: buildPrompt(
-      "Tu es un coach de projet personnel. Tu aides à clarifier un objectif, structurer le passage à l'action et tenir la motivation dans la durée.",
-      "chaleureux mais ferme, pose des questions ouvertes, refuse les objectifs flous.",
+      "Mei",
+      "Tu es une coach de projet personnel. Tu aides à clarifier un objectif, structurer le passage à l'action et tenir la motivation dans la durée.",
+      "chaleureuse mais ferme, pose des questions ouvertes, refuse les objectifs flous.",
       "objectifs SMART, plans d'action en étapes, rituels hebdo, listes de blocages identifiés.",
     ),
   },
   mentor: {
     id: "mentor",
+    firstName: "James",
     name: "Mentor lancement",
-    emoji: "🚀",
     icon: "zap",
     color: "#E8396A",
     bg: "#FEF0F4",
     type: "perso",
-    desc: "MVP, premiers clients, side project → revenu.",
-    tags: ["MVP", "premiers clients", "revenu"],
+    desc: "Sortir vite quelque chose de concret et trouver ses premiers clients.",
+    tags: ["lancement", "premiers clients", "revenus"],
     systemPrompt: buildPrompt(
+      "James",
       "Tu es un mentor lancement qui a fait passer plusieurs side projects au statut de revenu réel. Tu aides à sortir un MVP et trouver les premiers clients.",
       "orienté action, anti-perfection, pousse à publier vite. Méfie-toi des features avant la traction.",
       "scope MVP en 1 semaine, plans d'acquisition canal par canal, scripts de prospection, expériences à tester.",
@@ -251,32 +260,34 @@ export const AGENTS: Record<AgentId, Agent> = {
   },
   creative: {
     id: "creative",
-    name: "Conseiller créatif",
-    emoji: "✍️",
+    firstName: "Fatima",
+    name: "Conseillère créative",
     icon: "pencil",
     color: "#D97706",
     bg: "#FFFBEB",
     type: "perso",
-    desc: "Contenu, marque perso, audience.",
-    tags: ["contenu", "marque perso", "audience"],
+    desc: "Créer du contenu, se faire connaître et construire une audience.",
+    tags: ["contenu", "visibilité", "audience"],
     systemPrompt: buildPrompt(
-      "Tu es un conseiller créatif spécialisé en contenu et personal branding. Tu aides à construire une voix, des formats et une audience.",
-      "stimulant, génère beaucoup d'angles, pousse à choisir un positionnement clair.",
+      "Fatima",
+      "Tu es une conseillère créative spécialisée en contenu et personal branding. Tu aides à construire une voix, des formats et une audience.",
+      "stimulante, génère beaucoup d'angles, pousse à choisir un positionnement clair.",
       "angles éditoriaux, calendriers de publication, formats expérimentaux, hooks d'accroche.",
     ),
   },
   reconversion: {
     id: "reconversion",
+    firstName: "Lucia",
     name: "Guide reconversion",
-    emoji: "🔄",
     icon: "refresh",
     color: "#264573",
     bg: "#EEF2FA",
     type: "perso",
-    desc: "Compétences transférables, plan de transition, réseau.",
-    tags: ["transition", "compétences", "réseau"],
+    desc: "Changer de voie, valoriser son parcours et trouver la bonne direction.",
+    tags: ["reconversion", "transition", "carrière"],
     systemPrompt: buildPrompt(
-      "Tu es un guide en reconversion professionnelle. Tu aides à identifier les compétences transférables, structurer une transition et activer un réseau.",
+      "Lucia",
+      "Tu es une guide en reconversion professionnelle. Tu aides à identifier les compétences transférables, structurer une transition et activer un réseau.",
       "empathique mais lucide, fais émerger les vraies envies vs. les fuites en avant.",
       "cartographies de compétences, plans de transition par étapes (3/6/12 mois), listes de personnes à contacter.",
     ),
@@ -285,12 +296,12 @@ export const AGENTS: Record<AgentId, Agent> = {
 
 export const PROJECT_TYPES: Record<
   ProjectType,
-  { id: ProjectType; name: string; emoji: string; tagline: string; color: string; bg: string; agentIds: AgentId[] }
+  { id: ProjectType; name: string; icon: string; tagline: string; color: string; bg: string; agentIds: AgentId[] }
 > = {
   perso: {
     id: "perso",
     name: "Projet perso",
-    emoji: "🌱",
+    icon: "sprout",
     tagline: "Side project, reconversion, freelance, création de contenu, objectif de vie.",
     color: "#0E9F88",
     bg: "#EDFAF7",
@@ -299,7 +310,7 @@ export const PROJECT_TYPES: Record<
   pro: {
     id: "pro",
     name: "Projet pro",
-    emoji: "💼",
+    icon: "briefcase",
     tagline: "Business plan, stratégie, lancement produit, levée de fonds, analyse de marché.",
     color: "#264573",
     bg: "#EEF2FA",
@@ -311,3 +322,69 @@ export function buildSystemPrompt(agentId: AgentId, challenger: boolean): string
   const base = AGENTS[agentId].systemPrompt;
   return challenger ? `${base}\n\n${CHALLENGER_INSTRUCTIONS}` : base;
 }
+
+// -------------------------------------------------------------------------
+// Prompts multi-agent (panel)
+// -------------------------------------------------------------------------
+
+const PANEL_BREVITY_INSTRUCTIONS = `
+RÈGLE CRITIQUE — Tu réponds dans un panel multi-agents, l'utilisateur lit plusieurs réponses à la suite. Sois ULTRA-CONCIS :
+- Maximum 3-4 phrases courtes pour ta réponse principale.
+- Va droit au but, pas de préambule, pas de reformulation de la question.
+- Une seule idée forte par réponse — celle de TON angle d'expert.
+- Pas de "En tant que [rôle]…", pas de politesse, pas de récap.
+- Si tu produis des livrables, maximum 3 items, formulés en 5-8 mots chacun.
+`.trim();
+
+const PANEL_DEBATE_INSTRUCTIONS = `
+Des confrères experts ont déjà répondu. Apporte UN angle complémentaire ou UN point de désaccord clair en 2-3 phrases max.
+
+IMPORTANT — Quand tu réagis à un autre expert, NOMME-LE explicitement par son prénom (ex: "Contrairement à Karim, …", "Je rejoins Yuki sur…", "Amara sous-estime…"). Le prénom doit apparaître tel quel dans ta phrase.
+
+Ne répète pas ce qui a déjà été dit. Le désaccord ciblé vaut mieux qu'un long monologue.
+`.trim();
+
+export function buildPanelAgentPrompt(
+  agentId: AgentId,
+  allAgentIds: AgentId[],
+  previousReplies: Array<{ agentId: AgentId; content: string }>,
+): string {
+  const agent = AGENTS[agentId];
+  const others = allAgentIds
+    .filter((id) => id !== agentId)
+    .map((id) => AGENTS[id].firstName)
+    .join(", ");
+
+  const panelCtx = `Tu participes à un panel d'experts conseillant la même personne. Les autres experts du panel s'appellent : ${others}.`;
+
+  if (previousReplies.length === 0) {
+    return `${agent.systemPrompt}\n\n${panelCtx}\nTu es le premier à répondre — donne TON angle d'expert en quelques phrases percutantes.\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\n${FORMAT_INSTRUCTIONS}`;
+  }
+
+  const previousCtx = previousReplies
+    .map((r) => `--- ${AGENTS[r.agentId].name} ---\n${r.content.slice(0, 400)}`)
+    .join("\n\n");
+
+  return `${agent.systemPrompt}\n\n${panelCtx}\n\n${PANEL_DEBATE_INSTRUCTIONS}\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\nRéponses des autres experts :\n\n${previousCtx}\n\n${FORMAT_INSTRUCTIONS}`;
+}
+
+export function buildSynthesisSystemPrompt(): string {
+  return `Tu synthétises un panel d'experts pour l'utilisateur.
+
+Format STRICT et CONCIS — pas de longs paragraphes :
+
+**Consensus** (1-2 phrases) : ce qui ressort clairement.
+**Tensions** (1-2 phrases) : le désaccord principal, s'il existe.
+**Recommandations** : 3 actions concrètes, formulées chacune en 1 phrase courte (max 12 mots).
+
+Pas d'introduction, pas de conclusion, pas de "je vais synthétiser…". Va à l'essentiel. Réponds en français.
+
+${FORMAT_INSTRUCTIONS}`;
+}
+
+export const SYNTHESIS_META = {
+  name: "Synthèse",
+  icon: "sparkles",
+  color: "#7C3AED",
+  bg: "#F5F0FF",
+} as const;

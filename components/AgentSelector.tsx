@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { AGENTS, AgentId, PROJECT_TYPES, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -11,11 +12,24 @@ export function AgentSelector({
   onBack,
 }: {
   type: ProjectType;
-  onSelect: (agentId: AgentId) => void;
+  onSelect: (agentId: AgentId | AgentId[]) => void;
   onBack: () => void;
 }) {
   const isMobile = useIsMobile();
+  const [isPanelMode, setIsPanelMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<AgentId[]>([]);
   const meta = PROJECT_TYPES[type];
+
+  const toggleAgent = (id: AgentId) => {
+    setSelectedIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((x) => x !== id)
+        : prev.length < 4
+          ? [...prev, id]
+          : prev,
+    );
+  };
+
   return (
     <div
       style={{
@@ -49,6 +63,7 @@ export function AgentSelector({
       </button>
 
       <div style={{ width: "100%", maxWidth: 880, margin: "0 auto" }}>
+        {/* Header */}
         <div style={{ marginBottom: 22 }}>
           <div
             style={{
@@ -64,41 +79,125 @@ export function AgentSelector({
               marginBottom: 12,
             }}
           >
-            <span>{meta.emoji}</span>
+            <Icon name={meta.icon as IconName} size={12} color={meta.color} />
             {meta.name}
           </div>
           <h1
             style={{
               margin: "0 0 6px",
-              fontSize: 26,
+              fontSize: isMobile ? 22 : 26,
               fontWeight: 800,
               color: C.text,
               letterSpacing: "-0.03em",
             }}
           >
-            Choisis ton agent conseiller
+            Choisis {isPanelMode ? "tes agents pour le panel" : "ton agent conseiller"}
           </h1>
           <p style={{ margin: 0, color: C.textSub, fontSize: 14 }}>
-            Chaque agent a sa spécialité et son style. Tu peux en changer à tout moment.
+            {isPanelMode
+              ? "Sélectionne 2 à 4 agents — ils débattront et se challengeront mutuellement."
+              : "Chaque agent a sa spécialité et son style. Tu peux en changer à tout moment."}
           </p>
         </div>
 
+        {/* Toggle mode */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginBottom: 20,
+            padding: "12px 16px",
+            background: C.white,
+            border: `1.5px solid ${isPanelMode ? "#7C3AED" : C.border}`,
+            borderRadius: 12,
+            transition: "border-color 0.2s",
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 9,
+              background: isPanelMode ? "#F5F0FF" : C.bg,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 18,
+              flexShrink: 0,
+              transition: "background 0.2s",
+            }}
+          >
+            {isPanelMode ? <Icon name="sparkles" size={18} /> : <Icon name="target" size={18} />}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>
+              {isPanelMode ? "Mode Panel activé" : "Mode simple"}
+            </div>
+            <div style={{ fontSize: 12, color: C.textSub }}>
+              {isPanelMode
+                ? "Les agents se parlent et se challengent · Synthèse à la fin"
+                : "Un agent dédié à ta session"}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setIsPanelMode((p) => !p);
+              setSelectedIds([]);
+            }}
+            style={{
+              width: 44,
+              height: 24,
+              borderRadius: 100,
+              background: isPanelMode ? "#7C3AED" : C.border,
+              border: "none",
+              cursor: "pointer",
+              position: "relative",
+              transition: "background 0.2s",
+              flexShrink: 0,
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                top: 3,
+                left: isPanelMode ? 23 : 3,
+                width: 18,
+                height: 18,
+                borderRadius: "50%",
+                background: "white",
+                transition: "left 0.2s",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+              }}
+            />
+          </button>
+        </div>
+
+        {/* Agent grid */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(240px, 1fr))",
             gap: 14,
           }}
         >
           {meta.agentIds.map((id) => {
             const agent = AGENTS[id];
+            const isSelected = selectedIds.includes(id);
+
             return (
               <button
                 key={id}
-                onClick={() => onSelect(id)}
+                onClick={() => {
+                  if (isPanelMode) {
+                    toggleAgent(id);
+                  } else {
+                    onSelect(id);
+                  }
+                }}
                 style={{
-                  background: C.white,
-                  border: `1.5px solid ${C.border}`,
+                  background: isSelected ? agent.bg : C.white,
+                  border: `1.5px solid ${isSelected ? agent.color : C.border}`,
                   borderRadius: 12,
                   padding: 18,
                   cursor: "pointer",
@@ -108,18 +207,45 @@ export function AgentSelector({
                   display: "flex",
                   flexDirection: "column",
                   gap: 12,
+                  position: "relative",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = agent.color;
-                  e.currentTarget.style.boxShadow = C.shadowMd;
-                  e.currentTarget.style.transform = "translateY(-2px)";
+                  if (!isSelected) {
+                    e.currentTarget.style.borderColor = agent.color;
+                    e.currentTarget.style.boxShadow = C.shadowMd;
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = C.border;
-                  e.currentTarget.style.boxShadow = "none";
-                  e.currentTarget.style.transform = "translateY(0)";
+                  if (!isSelected) {
+                    e.currentTarget.style.borderColor = C.border;
+                    e.currentTarget.style.boxShadow = "none";
+                    e.currentTarget.style.transform = "translateY(0)";
+                  }
                 }}
               >
+                {/* Checkbox panel mode */}
+                {isPanelMode && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 12,
+                      right: 12,
+                      width: 20,
+                      height: 20,
+                      borderRadius: 6,
+                      border: `2px solid ${isSelected ? agent.color : C.border}`,
+                      background: isSelected ? agent.color : "white",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {isSelected && <Icon name="check" size={11} color="white" />}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div
                     style={{
@@ -135,7 +261,7 @@ export function AgentSelector({
                       flexShrink: 0,
                     }}
                   >
-                    {agent.emoji}
+                    <Icon name={agent.icon as IconName} size={18} color={agent.color} />
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div
@@ -147,12 +273,11 @@ export function AgentSelector({
                         lineHeight: 1.2,
                       }}
                     >
-                      {agent.name}
+                      {agent.firstName}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3 }}>
-                      <Icon name={agent.icon as IconName} size={11} color={agent.color} />
                       <span style={{ fontSize: 11, color: agent.color, fontWeight: 600 }}>
-                        Conseiller IA
+                        {agent.name}
                       </span>
                     </div>
                   </div>
@@ -183,6 +308,89 @@ export function AgentSelector({
             );
           })}
         </div>
+
+        {/* Panel CTA */}
+        {isPanelMode && (
+          <div
+            style={{
+              marginTop: 20,
+              padding: "14px 16px",
+              background: C.white,
+              border: `1.5px solid ${selectedIds.length >= 2 ? "#7C3AED" : C.border}`,
+              borderRadius: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              transition: "border-color 0.2s",
+            }}
+          >
+            {/* Agent chips */}
+            <div style={{ flex: 1, display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {selectedIds.length === 0 ? (
+                <span style={{ fontSize: 13, color: C.textMute }}>
+                  Sélectionne 2 à 4 agents…
+                </span>
+              ) : (
+                selectedIds.map((id) => {
+                  const agent = AGENTS[id];
+                  return (
+                    <span
+                      key={id}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        background: agent.bg,
+                        color: agent.color,
+                        border: `1px solid ${agent.color}40`,
+                        borderRadius: 100,
+                        padding: "3px 10px 3px 7px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      <Icon name={agent.icon as IconName} size={12} color={agent.color} /> {agent.name}
+                    </span>
+                  );
+                })
+              )}
+            </div>
+            <button
+              onClick={() => selectedIds.length >= 2 && onSelect(selectedIds)}
+              disabled={selectedIds.length < 2}
+              style={{
+                background: selectedIds.length >= 2 ? "#7C3AED" : C.border,
+                color: "white",
+                border: "none",
+                borderRadius: 9,
+                padding: "10px 18px",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: selectedIds.length >= 2 ? "pointer" : "default",
+                fontFamily: "inherit",
+                transition: "background 0.2s",
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              ✨ Lancer le panel
+              {selectedIds.length >= 2 && (
+                <span
+                  style={{
+                    background: "rgba(255,255,255,0.25)",
+                    borderRadius: 100,
+                    padding: "1px 7px",
+                    fontSize: 11,
+                  }}
+                >
+                  {selectedIds.length}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

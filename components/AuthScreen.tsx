@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { LuLoader, LuArrowLeft, LuCheck } from "react-icons/lu";
 import { AGENTS, AgentId } from "@/lib/data";
+import { Icon, IconName } from "./Icon";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -100,7 +101,7 @@ function AuthBrand() {
                   fontSize: 15,
                 }}
               >
-                {agent.emoji}
+                <Icon name={agent.icon as IconName} size={15} color={agent.color} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: "rgba(255,255,255,0.92)" }}>{agent.name}</div>
