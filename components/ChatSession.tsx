@@ -13,6 +13,7 @@ import {
 } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
+import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
 
 const TABLE_DOWNLOAD_FORMATS = [
@@ -576,6 +577,7 @@ export function ChatSession({
   onBack,
   onTitleChange,
 }: ChatSessionProps) {
+  const isMobile = useIsMobile();
   const supabase = createClient();
   const agent = AGENTS[agentId];
   const typeMeta = PROJECT_TYPES[projectType];
@@ -685,10 +687,10 @@ export function ChatSession({
         style={{
           background: C.white,
           borderBottom: `1px solid ${C.border}`,
-          padding: "12px 20px",
+          padding: isMobile ? "10px 12px" : "12px 20px",
           display: "flex",
           alignItems: "center",
-          gap: 12,
+          gap: isMobile ? 8 : 12,
           flexShrink: 0,
         }}
       >
@@ -708,30 +710,32 @@ export function ChatSession({
           <Icon name="arrowLeft" size={16} color={C.textSub} />
         </button>
 
-        <AgentAvatar agentId={agentId} size={34} />
+        <AgentAvatar agentId={agentId} size={isMobile ? 28 : 34} />
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 800, color: C.text, letterSpacing: "-0.02em" }}>
+          <div style={{ fontSize: isMobile ? 13 : 14.5, fontWeight: 800, color: C.text, letterSpacing: "-0.02em" }}>
             {agent.name}
           </div>
-          <div style={{ fontSize: 11.5, color: C.textSub }}>{agent.desc}</div>
+          {!isMobile && <div style={{ fontSize: 11.5, color: C.textSub }}>{agent.desc}</div>}
         </div>
 
-        <span
-          style={{
-            background: typeMeta.bg,
-            color: typeMeta.color,
-            fontSize: 11,
-            fontWeight: 700,
-            padding: "3px 9px",
-            borderRadius: 100,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-          }}
-        >
-          <span>{typeMeta.emoji}</span>
-          {typeMeta.name}
-        </span>
+        {!isMobile && (
+          <span
+            style={{
+              background: typeMeta.bg,
+              color: typeMeta.color,
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "3px 9px",
+              borderRadius: 100,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <span>{typeMeta.emoji}</span>
+            {typeMeta.name}
+          </span>
+        )}
 
         <button
           onClick={toggleChallenger}
@@ -739,12 +743,12 @@ export function ChatSession({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 7,
+            gap: isMobile ? 0 : 7,
             border: `1.5px solid ${challenger ? "#D97706" : C.border}`,
             background: challenger ? "#FFFBEB" : C.white,
             color: challenger ? "#D97706" : C.textSub,
             borderRadius: 100,
-            padding: "5px 11px 5px 9px",
+            padding: isMobile ? "6px" : "5px 11px 5px 9px",
             cursor: "pointer",
             fontSize: 12,
             fontWeight: 700,
@@ -753,30 +757,34 @@ export function ChatSession({
           }}
         >
           <Icon name="zap" size={12} color={challenger ? "#D97706" : C.textSub} />
-          Mode Challenger
-          <span
-            style={{
-              width: 26,
-              height: 14,
-              borderRadius: 100,
-              background: challenger ? "#D97706" : C.border,
-              position: "relative",
-              transition: "background 0.2s",
-            }}
-          >
-            <span
-              style={{
-                position: "absolute",
-                top: 2,
-                left: challenger ? 14 : 2,
-                width: 10,
-                height: 10,
-                borderRadius: "50%",
-                background: "white",
-                transition: "left 0.2s",
-              }}
-            />
-          </span>
+          {!isMobile && (
+            <>
+              Mode Challenger
+              <span
+                style={{
+                  width: 26,
+                  height: 14,
+                  borderRadius: 100,
+                  background: challenger ? "#D97706" : C.border,
+                  position: "relative",
+                  transition: "background 0.2s",
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    left: challenger ? 14 : 2,
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: "white",
+                    transition: "left 0.2s",
+                  }}
+                />
+              </span>
+            </>
+          )}
         </button>
       </div>
 
@@ -786,7 +794,7 @@ export function ChatSession({
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "24px 24px 16px",
+          padding: isMobile ? "16px 12px 12px" : "24px 24px 16px",
           display: "flex",
           flexDirection: "column",
           gap: 14,
@@ -839,7 +847,7 @@ export function ChatSession({
       {/* Input */}
       <div
         style={{
-          padding: "12px 20px 16px",
+          padding: isMobile ? "10px 12px 12px" : "12px 20px 16px",
           background: C.white,
           borderTop: `1px solid ${C.border}`,
           flexShrink: 0,

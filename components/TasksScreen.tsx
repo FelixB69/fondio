@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AGENTS, AgentId, Task, TaskStatus } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
+import { useIsMobile } from "@/lib/use-responsive";
 import { Icon } from "./Icon";
 
 const STATUS_META: Record<TaskStatus, { label: string; color: string; bg: string }> = {
@@ -19,6 +20,7 @@ const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
 };
 
 export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => void }) {
+  const isMobile = useIsMobile();
   const supabase = createClient();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,7 +94,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
       {/* Header */}
       <div
         style={{
-          padding: "20px 28px 16px",
+          padding: isMobile ? "14px 16px 12px" : "20px 28px 16px",
           background: C.white,
           borderBottom: `1px solid ${C.border}`,
         }}
@@ -198,7 +200,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
       </div>
 
       {/* Body — 3 colonnes kanban */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "18px 28px 32px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px 12px 24px" : "18px 28px 32px" }}>
         {loading && <div style={{ color: C.textMute, fontSize: 13 }}>Chargement…</div>}
 
         {!loading && tasks.length === 0 && (
@@ -222,9 +224,8 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)",
               gap: 16,
-              minWidth: 720,
             }}
           >
             {(Object.keys(STATUS_META) as TaskStatus[]).map((status) => {

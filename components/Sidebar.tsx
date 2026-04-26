@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { AGENTS, AgentId, ProjectType, PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
 
 export type SidebarView = "chat" | "library" | "tasks";
@@ -29,6 +30,8 @@ interface SidebarProps {
   onRestoreSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   userEmail?: string;
+  isMobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 function formatRelative(iso: string): string {
@@ -120,7 +123,10 @@ export function Sidebar({
   onRestoreSession,
   onDeleteSession,
   userEmail,
+  isMobileOpen = false,
+  onMobileClose,
 }: SidebarProps) {
+  const isMobile = useIsMobile();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [showArchives, setShowArchives] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -152,11 +158,37 @@ export function Sidebar({
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
+        ...(isMobile ? {
+          position: "fixed" as const,
+          top: 0,
+          left: 0,
+          zIndex: 99,
+          transform: isMobileOpen ? "translateX(0)" : "translateX(-100%)",
+          transition: "transform 0.25s ease",
+          boxShadow: isMobileOpen ? "4px 0 24px rgba(0,0,0,0.18)" : "none",
+        } : {}),
       }}
     >
       {/* Logo */}
-      <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${C.border}` }}>
-        <img src="/fondio.gif" alt="Fondio" style={{ height: 60, width: "auto", display: "block" }} />
+      <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+        <img src="/fondio.gif" alt="Fondio" style={{ height: 60, width: "auto", display: "block", flex: 1 }} />
+        {isMobile && (
+          <button
+            onClick={onMobileClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 4,
+              display: "flex",
+              borderRadius: 6,
+              color: C.textSub,
+              flexShrink: 0,
+            }}
+          >
+            <Icon name="close" size={18} color={C.textSub} />
+          </button>
+        )}
       </div>
 
       {/* New session */}

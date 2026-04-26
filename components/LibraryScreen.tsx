@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AGENTS, AgentId, ChatMessage, ProjectType, PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
+import { useIsMobile } from "@/lib/use-responsive";
 import { Icon } from "./Icon";
 
 interface DeliverableEntry {
@@ -72,6 +73,7 @@ export function LibraryScreen({
 }: {
   onOpenSession: (id: string) => void;
 }) {
+  const isMobile = useIsMobile();
   const supabase = createClient();
   const [entries, setEntries] = useState<DeliverableEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,7 +163,7 @@ export function LibraryScreen({
       {/* Header */}
       <div
         style={{
-          padding: "20px 28px 14px",
+          padding: isMobile ? "14px 16px 12px" : "20px 28px 14px",
           background: C.white,
           borderBottom: `1px solid ${C.border}`,
         }}
@@ -251,7 +253,7 @@ export function LibraryScreen({
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "18px 28px 32px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px 12px 24px" : "18px 28px 32px" }}>
         {loading && <div style={{ color: C.textMute, fontSize: 13 }}>Chargement…</div>}
 
         {!loading && grouped.length === 0 && (
@@ -289,7 +291,7 @@ export function LibraryScreen({
                   boxShadow: C.shadow,
                 }}
               >
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
                   <div
                     style={{
                       width: 32,

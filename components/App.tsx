@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AgentId, ChatMessage, ProjectType } from "@/lib/data";
+import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
+import { useIsMobile } from "@/lib/use-responsive";
 import { AgentSelector } from "./AgentSelector";
 import { AuthScreen } from "./AuthScreen";
 import { ChatSession } from "./ChatSession";
+import { Icon } from "./Icon";
 import { LibraryScreen } from "./LibraryScreen";
 import { Sidebar, SessionListItem, SidebarView } from "./Sidebar";
 import { TasksScreen } from "./TasksScreen";
@@ -25,6 +28,7 @@ interface SessionFull {
 
 export function App() {
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [screen, setScreen] = useState<Screen>("loading");
   const [userEmail, setUserEmail] = useState<string | undefined>();
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
@@ -32,6 +36,7 @@ export function App() {
   const [activeSession, setActiveSession] = useState<SessionFull | null>(null);
   const [pendingType, setPendingType] = useState<ProjectType | null>(null);
   const [taskOpenCount, setTaskOpenCount] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const loadSessions = useCallback(async () => {
     const { data } = await supabase
@@ -286,27 +291,74 @@ export function App() {
 
   return (
     <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden" }}>
+      {isMobile && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            zIndex: 98,
+            animation: "fndFadeIn 0.15s ease",
+          }}
+        />
+      )}
       <Sidebar
         sessions={sessions}
         archivedSessions={archivedSessions}
         activeSessionId={activeSession?.id ?? null}
         currentView={sidebarView}
         taskOpenCount={taskOpenCount}
-        onSelectSession={openSession}
+        onSelectSession={(id) => { openSession(id); setSidebarOpen(false); }}
         onNewSession={() => {
           setActiveSession(null);
           setPendingType(null);
           setScreen("type");
+          setSidebarOpen(false);
         }}
-        onNavigate={navigate}
+        onNavigate={(view) => { navigate(view); setSidebarOpen(false); }}
         onSignOut={handleSignOut}
         onArchiveSession={archiveSession}
         onRestoreSession={restoreSession}
         onDeleteSession={deleteSession}
         userEmail={userEmail}
+        isMobileOpen={sidebarOpen}
+        onMobileClose={() => setSidebarOpen(false)}
       />
-      <div style={{ flex: 1, display: "flex", overflow: "hidden", animation: "fndFadeIn 0.18s ease" }}>
-        {renderMain()}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {isMobile && (
+          <div
+            style={{
+              height: 52,
+              background: C.white,
+              borderBottom: `1px solid ${C.border}`,
+              display: "flex",
+              alignItems: "center",
+              padding: "0 16px",
+              flexShrink: 0,
+              gap: 12,
+              zIndex: 10,
+            }}
+          >
+            <button
+              onClick={() => setSidebarOpen(true)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 4,
+                display: "flex",
+                borderRadius: 6,
+              }}
+            >
+              <Icon name="menu" size={22} color={C.text} />
+            </button>
+            <img src="/fondio.gif" alt="Fondio" style={{ height: 36, width: "auto" }} />
+          </div>
+        )}
+        <div style={{ flex: 1, display: "flex", overflow: "hidden", animation: "fndFadeIn 0.18s ease" }}>
+          {renderMain()}
+        </div>
       </div>
     </div>
   );

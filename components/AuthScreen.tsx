@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
-import { LuLoader, LuArrowLeft, LuCheck, LuBrain, LuChartBar, LuDollarSign, LuTarget, LuRocket } from "react-icons/lu";
-import type { IconType } from "react-icons";
+import { LuLoader, LuArrowLeft, LuCheck } from "react-icons/lu";
 import { AGENTS, AgentId } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
+import { useIsMobile } from "@/lib/use-responsive";
 
 function AuthBrand() {
   const featuredIds: AgentId[] = ["strategist", "analyst", "finance", "coach", "mentor"];
@@ -510,7 +510,8 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
     confirm: renderConfirm,
   };
 
-  const showBrand = view === "login" || view === "signup";
+  const isMobile = useIsMobile();
+  const showBrand = !isMobile && (view === "login" || view === "signup");
 
   return (
     <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden", background: C.bg }}>
@@ -521,15 +522,21 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          padding: 32,
+          padding: isMobile ? "24px 20px" : 32,
           overflowY: "auto",
           background: C.white,
         }}
       >
+        {isMobile && (view === "login" || view === "signup") && (
+          <div style={{ position: "absolute", top: 24, left: "50%", transform: "translateX(-50%)" }}>
+            <img src="/fondio-logo.png" alt="Fondio" style={{ height: 48, width: "auto", display: "block" }} />
+          </div>
+        )}
         <div
           style={{
             width: "100%",
             maxWidth: 420,
+            marginTop: isMobile && (view === "login" || view === "signup") ? 64 : 0,
             animation: "fndFadeIn 0.22s ease",
           }}
         >

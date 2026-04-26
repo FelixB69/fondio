@@ -2,9 +2,11 @@
 
 import { PROJECT_TYPES, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import { useIsMobile } from "@/lib/use-responsive";
 import { Icon } from "./Icon";
 
 export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => void }) {
+  const isMobile = useIsMobile();
   return (
     <div
       style={{
@@ -12,13 +14,14 @@ export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => vo
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 32,
+        padding: isMobile ? "24px 16px" : 32,
         background: C.bg,
         animation: "fndFadeIn 0.22s ease",
+        overflowY: "auto",
       }}
     >
       <div style={{ width: "100%", maxWidth: 720 }}>
-        <div style={{ textAlign: "center", marginBottom: 36 }}>
+        <div style={{ textAlign: "center", marginBottom: isMobile ? 24 : 36 }}>
           <div
             style={{
               display: "inline-flex",
@@ -49,7 +52,7 @@ export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => vo
           </p>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
           {(Object.values(PROJECT_TYPES) as Array<typeof PROJECT_TYPES.perso>).map((t) => (
             <button
               key={t.id}

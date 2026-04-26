@@ -35,6 +35,7 @@ import {
   LuExternalLink,
   LuArchive,
   LuTrash2,
+  LuMenu,
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 
@@ -73,7 +74,8 @@ export type IconName =
   | "refresh"
   | "externalLink"
   | "archive"
-  | "trash";
+  | "trash"
+  | "menu";
 
 interface IconProps {
   name: IconName;
@@ -118,6 +120,7 @@ const ICONS: Record<IconName, IconType> = {
   externalLink: LuExternalLink,
   archive: LuArchive,
   trash: LuTrash2,
+  menu: LuMenu,
 };
 
 export function Icon({ name, size = 16, color = "currentColor", style }: IconProps) {

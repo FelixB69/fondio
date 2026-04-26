@@ -2,6 +2,7 @@
 
 import { AGENTS, AgentId, PROJECT_TYPES, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
 
 export function AgentSelector({
@@ -13,6 +14,7 @@ export function AgentSelector({
   onSelect: (agentId: AgentId) => void;
   onBack: () => void;
 }) {
+  const isMobile = useIsMobile();
   const meta = PROJECT_TYPES[type];
   return (
     <div
@@ -20,7 +22,7 @@ export function AgentSelector({
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        padding: "32px 32px 24px",
+        padding: isMobile ? "16px 16px 24px" : "32px 32px 24px",
         background: C.bg,
         overflowY: "auto",
         animation: "fndFadeIn 0.22s ease",
