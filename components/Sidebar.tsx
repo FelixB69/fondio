@@ -6,12 +6,13 @@ import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
 
-export type SidebarView = "chat" | "library" | "tasks";
+export type SidebarView = "chat" | "library" | "tasks" | "projects";
 
 export interface SessionListItem {
   id: string;
   agent_id: AgentId;
   project_type: ProjectType;
+  project_id?: string | null;
   title: string | null;
   updated_at: string;
   panel_agent_ids?: string[] | null;
@@ -30,6 +31,7 @@ interface SidebarProps {
   onArchiveSession: (id: string) => void;
   onRestoreSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
+  onLinkSession: (id: string) => void;
   userEmail?: string;
   isMobileOpen?: boolean;
   onMobileClose?: () => void;
@@ -123,6 +125,7 @@ export function Sidebar({
   onArchiveSession,
   onRestoreSession,
   onDeleteSession,
+  onLinkSession,
   userEmail,
   isMobileOpen = false,
   onMobileClose,
@@ -203,6 +206,12 @@ export function Sidebar({
       {/* Nav */}
       <div style={{ padding: "6px 8px 4px" }}>
         <NavItem
+          icon="target"
+          label="Projets"
+          active={currentView === "projects"}
+          onClick={() => onNavigate("projects")}
+        />
+        <NavItem
           icon="book"
           label="Bibliothèque"
           active={currentView === "library"}
@@ -257,7 +266,7 @@ export function Sidebar({
                   width: "100%",
                   display: "flex",
                   gap: 8,
-                  padding: hovered ? "8px 34px 8px 10px" : "8px 10px",
+                  padding: hovered ? "8px 58px 8px 10px" : "8px 10px",
                   borderRadius: 8,
                   border: "none",
                   cursor: "pointer",
@@ -340,38 +349,73 @@ export function Sidebar({
               </button>
 
               {hovered && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onArchiveSession(s.id);
-                  }}
-                  title="Archiver"
+                <div
                   style={{
                     position: "absolute",
-                    right: 6,
+                    right: 4,
                     top: "50%",
                     transform: "translateY(-50%)",
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    padding: 4,
-                    borderRadius: 5,
-                    color: C.textMute,
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = C.navy;
-                    e.currentTarget.style.background = C.navyLight;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = C.textMute;
-                    e.currentTarget.style.background = "none";
+                    gap: 1,
                   }}
                 >
-                  <Icon name="archive" size={13} />
-                </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onLinkSession(s.id);
+                    }}
+                    title={s.project_id ? "Changer de projet" : "Rattacher à un projet"}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 4,
+                      borderRadius: 5,
+                      color: s.project_id ? C.navy : C.textMute,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = C.navy;
+                      e.currentTarget.style.background = C.navyLight;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = s.project_id ? C.navy : C.textMute;
+                      e.currentTarget.style.background = "none";
+                    }}
+                  >
+                    <Icon name="target" size={13} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onArchiveSession(s.id);
+                    }}
+                    title="Archiver"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 4,
+                      borderRadius: 5,
+                      color: C.textMute,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = C.navy;
+                      e.currentTarget.style.background = C.navyLight;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = C.textMute;
+                      e.currentTarget.style.background = "none";
+                    }}
+                  >
+                    <Icon name="archive" size={13} />
+                  </button>
+                </div>
               )}
             </div>
           );

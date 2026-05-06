@@ -10,12 +10,14 @@ import { AuthScreen } from "./AuthScreen";
 import { ChatSession } from "./ChatSession";
 import { Icon } from "./Icon";
 import { LibraryScreen } from "./LibraryScreen";
+import { LinkSessionModal } from "./LinkSessionModal";
 import { MultiAgentSession } from "./MultiAgentSession";
+import { ProjectsScreen } from "./ProjectsScreen";
 import { Sidebar, SessionListItem, SidebarView } from "./Sidebar";
 import { TasksScreen } from "./TasksScreen";
 import { TypeSelector } from "./TypeSelector";
 
-type Screen = "auth" | "loading" | "type" | "agents" | "chat" | "library" | "tasks";
+type Screen = "auth" | "loading" | "type" | "agents" | "chat" | "library" | "tasks" | "projects";
 
 interface SessionFull {
   id: string;
@@ -37,13 +39,15 @@ export function App() {
   const [archivedSessions, setArchivedSessions] = useState<SessionListItem[]>([]);
   const [activeSession, setActiveSession] = useState<SessionFull | null>(null);
   const [pendingType, setPendingType] = useState<ProjectType | null>(null);
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
+  const [linkingSessionId, setLinkingSessionId] = useState<string | null>(null);
   const [taskOpenCount, setTaskOpenCount] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const loadSessions = useCallback(async () => {
     const { data } = await supabase
       .from("sessions")
-      .select("id, agent_id, project_type, title, updated_at, panel_agent_ids")
+      .select("id, agent_id, project_type, project_id, title, updated_at, panel_agent_ids")
       .is("archived_at", null)
       .order("updated_at", { ascending: false });
     setSessions((data ?? []) as SessionListItem[]);
@@ -52,7 +56,7 @@ export function App() {
   const loadArchivedSessions = useCallback(async () => {
     const { data } = await supabase
       .from("sessions")
-      .select("id, agent_id, project_type, title, updated_at, panel_agent_ids")
+      .select("id, agent_id, project_type, project_id, title, updated_at, panel_agent_ids")
       .not("archived_at", "is", null)
       .order("archived_at", { ascending: false });
     setArchivedSessions((data ?? []) as SessionListItem[]);
@@ -131,7 +135,7 @@ export function App() {
   );
 
   const startNewSession = useCallback(
-    async (agentIdOrIds: AgentId | AgentId[], type: ProjectType) => {
+    async (agentIdOrIds: AgentId | AgentId[], type: ProjectType, projectId: string | null = null) => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -144,21 +148,24 @@ export function App() {
         .from("sessions")
         .insert({
           user_id: user.id,
+          project_id: projectId,
           project_type: type,
           agent_id: primaryAgentId,
           challenger_mode: false,
           messages: [],
           panel_agent_ids: isPanel ? agentIdOrIds : null,
         })
-        .select("id, project_type, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids")
+        .select("id, project_type, project_id, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids")
         .single();
       if (error || !data) return;
+      setPendingProjectId(null);
 
       setSessions((p) => [
         {
           id: data.id,
           agent_id: data.agent_id,
           project_type: data.project_type,
+          project_id: data.project_id ?? null,
           title: data.title,
           updated_at: data.updated_at,
           panel_agent_ids: Array.isArray(data.panel_agent_ids) ? data.panel_agent_ids : null,
@@ -238,6 +245,7 @@ export function App() {
   const navigate = useCallback((view: Exclude<SidebarView, "chat">) => {
     setScreen(view);
     setActiveSession(null);
+    setPendingProjectId(null);
   }, []);
 
   if (screen === "loading") {
@@ -260,7 +268,10 @@ export function App() {
   }
 
   const sidebarView: SidebarView =
-    screen === "library" ? "library" : screen === "tasks" ? "tasks" : "chat";
+    screen === "library" ? "library"
+    : screen === "tasks" ? "tasks"
+    : screen === "projects" ? "projects"
+    : "chat";
 
   const renderMain = () => {
     if (screen === "type") {
@@ -277,8 +288,8 @@ export function App() {
       return (
         <AgentSelector
           type={pendingType}
-          onBack={() => setScreen("type")}
-          onSelect={(agentIdOrIds) => startNewSession(agentIdOrIds, pendingType)}
+          onBack={() => setScreen(pendingProjectId ? "projects" : "type")}
+          onSelect={(agentIdOrIds) => startNewSession(agentIdOrIds, pendingType, pendingProjectId)}
         />
       );
     }
@@ -287,6 +298,18 @@ export function App() {
     }
     if (screen === "tasks") {
       return <TasksScreen onOpenSession={openSession} />;
+    }
+    if (screen === "projects") {
+      return (
+        <ProjectsScreen
+          onStartSession={(projectId, type) => {
+            setPendingType(type);
+            setPendingProjectId(projectId);
+            setScreen("agents");
+          }}
+          onOpenSession={openSession}
+        />
+      );
     }
     if (screen === "chat" && activeSession) {
       const panelIds = activeSession.panel_agent_ids;
@@ -341,6 +364,7 @@ export function App() {
         onNewSession={() => {
           setActiveSession(null);
           setPendingType(null);
+          setPendingProjectId(null);
           setScreen("type");
           setSidebarOpen(false);
         }}
@@ -349,6 +373,7 @@ export function App() {
         onArchiveSession={archiveSession}
         onRestoreSession={restoreSession}
         onDeleteSession={deleteSession}
+        onLinkSession={(id) => setLinkingSessionId(id)}
         userEmail={userEmail}
         isMobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
@@ -388,6 +413,23 @@ export function App() {
           {renderMain()}
         </div>
       </div>
+
+      {linkingSessionId && (
+        <LinkSessionModal
+          sessionId={linkingSessionId}
+          currentProjectId={
+            sessions.find((s) => s.id === linkingSessionId)?.project_id ??
+            archivedSessions.find((s) => s.id === linkingSessionId)?.project_id ??
+            null
+          }
+          onClose={() => setLinkingSessionId(null)}
+          onLinked={(projectId) => {
+            setSessions((p) => p.map((s) => (s.id === linkingSessionId ? { ...s, project_id: projectId } : s)));
+            setArchivedSessions((p) => p.map((s) => (s.id === linkingSessionId ? { ...s, project_id: projectId } : s)));
+            setLinkingSessionId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
