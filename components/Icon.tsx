@@ -39,6 +39,14 @@ import {
   LuTarget,
   LuBriefcase,
   LuSprout,
+  LuLightbulb,
+  LuSearch,
+  LuHammer,
+  LuRocket,
+  LuTrendingUp,
+  LuGlobe,
+  LuStar,
+  LuLayers,
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 
@@ -81,7 +89,15 @@ export type IconName =
   | "menu"
   | "target"
   | "briefcase"
-  | "sprout";
+  | "sprout"
+  | "lightbulb"
+  | "search"
+  | "hammer"
+  | "rocket"
+  | "trendingUp"
+  | "globe"
+  | "star"
+  | "layers";
 
 interface IconProps {
   name: IconName;
@@ -130,6 +146,14 @@ const ICONS: Record<IconName, IconType> = {
   target: LuTarget,
   briefcase: LuBriefcase,
   sprout: LuSprout,
+  lightbulb: LuLightbulb,
+  search: LuSearch,
+  hammer: LuHammer,
+  rocket: LuRocket,
+  trendingUp: LuTrendingUp,
+  globe: LuGlobe,
+  star: LuStar,
+  layers: LuLayers,
 };
 
 export function Icon({ name, size = 16, color = "currentColor", style }: IconProps) {

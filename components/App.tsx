@@ -12,16 +12,27 @@ import { Icon } from "./Icon";
 import { LibraryScreen } from "./LibraryScreen";
 import { LinkSessionModal } from "./LinkSessionModal";
 import { MultiAgentSession } from "./MultiAgentSession";
+import { ProjectDetailScreen } from "./ProjectDetailScreen";
 import { ProjectsScreen } from "./ProjectsScreen";
 import { Sidebar, SessionListItem, SidebarView } from "./Sidebar";
 import { TasksScreen } from "./TasksScreen";
 import { TypeSelector } from "./TypeSelector";
 
-type Screen = "auth" | "loading" | "type" | "agents" | "chat" | "library" | "tasks" | "projects";
+type Screen =
+  | "auth"
+  | "loading"
+  | "type"
+  | "agents"
+  | "chat"
+  | "library"
+  | "tasks"
+  | "projects"
+  | "project-detail";
 
 interface SessionFull {
   id: string;
   project_type: ProjectType;
+  project_id: string | null;
   agent_id: AgentId;
   title: string | null;
   challenger_mode: boolean;
@@ -40,6 +51,7 @@ export function App() {
   const [activeSession, setActiveSession] = useState<SessionFull | null>(null);
   const [pendingType, setPendingType] = useState<ProjectType | null>(null);
   const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [linkingSessionId, setLinkingSessionId] = useState<string | null>(null);
   const [taskOpenCount, setTaskOpenCount] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -115,13 +127,14 @@ export function App() {
     async (id: string) => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, project_type, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids")
+        .select("id, project_type, project_id, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids")
         .eq("id", id)
         .single();
       if (error || !data) return;
       setActiveSession({
         id: data.id,
         project_type: data.project_type,
+        project_id: data.project_id ?? null,
         agent_id: data.agent_id,
         title: data.title,
         challenger_mode: data.challenger_mode,
@@ -175,6 +188,7 @@ export function App() {
       setActiveSession({
         id: data.id,
         project_type: data.project_type,
+        project_id: data.project_id ?? null,
         agent_id: data.agent_id,
         title: data.title,
         challenger_mode: data.challenger_mode,
@@ -246,6 +260,7 @@ export function App() {
     setScreen(view);
     setActiveSession(null);
     setPendingProjectId(null);
+    setSelectedProjectId(null);
   }, []);
 
   if (screen === "loading") {
@@ -270,7 +285,7 @@ export function App() {
   const sidebarView: SidebarView =
     screen === "library" ? "library"
     : screen === "tasks" ? "tasks"
-    : screen === "projects" ? "projects"
+    : screen === "projects" || screen === "project-detail" ? "projects"
     : "chat";
 
   const renderMain = () => {
@@ -302,12 +317,33 @@ export function App() {
     if (screen === "projects") {
       return (
         <ProjectsScreen
+          onOpenProject={(id) => {
+            setSelectedProjectId(id);
+            setScreen("project-detail");
+          }}
           onStartSession={(projectId, type) => {
             setPendingType(type);
             setPendingProjectId(projectId);
             setScreen("agents");
           }}
           onOpenSession={openSession}
+        />
+      );
+    }
+    if (screen === "project-detail" && selectedProjectId) {
+      return (
+        <ProjectDetailScreen
+          projectId={selectedProjectId}
+          onBack={() => {
+            setSelectedProjectId(null);
+            setScreen("projects");
+          }}
+          onOpenSession={openSession}
+          onStartSession={(projectId, type) => {
+            setPendingType(type);
+            setPendingProjectId(projectId);
+            setScreen("agents");
+          }}
         />
       );
     }
@@ -330,6 +366,7 @@ export function App() {
           sessionId={activeSession.id}
           agentId={activeSession.agent_id}
           projectType={activeSession.project_type}
+          projectId={activeSession.project_id}
           initialMessages={activeSession.messages}
           initialChallenger={activeSession.challenger_mode}
           onBack={() => setScreen("type")}

@@ -5,11 +5,11 @@ import { AGENTS, AgentId, ChatMessage, PROJECT_TYPES, ProjectType } from "@/lib/
 import { C } from "@/lib/design-tokens";
 import {
   computeStats,
-  DEFAULT_EMOJIS,
+  PROJECT_COLORS,
+  PROJECT_ICONS,
   Project,
   ProjectStats,
   STAGES,
-  XP_RULES,
 } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -47,16 +47,19 @@ interface TaskAggRow {
 
 interface NewProjectInput {
   name: string;
-  emoji: string;
+  icon: string;
+  color: string;
   project_type: ProjectType;
 }
 
 export function ProjectsScreen({
   onStartSession,
   onOpenSession,
+  onOpenProject,
 }: {
   onStartSession: (projectId: string, type: ProjectType) => void;
   onOpenSession: (sessionId: string) => void;
+  onOpenProject: (projectId: string) => void;
 }) {
   const isMobile = useIsMobile();
   const supabase = createClient();
@@ -69,7 +72,7 @@ export function ProjectsScreen({
     const [projectsRes, sessionsRes, tasksRes] = await Promise.all([
       supabase
         .from("projects")
-        .select("id, name, emoji, project_type, created_at, updated_at")
+        .select("id, name, icon, color, project_type, stage, created_at, updated_at")
         .order("updated_at", { ascending: false }),
       supabase
         .from("sessions")
@@ -84,7 +87,6 @@ export function ProjectsScreen({
     const allSessions = (sessionsRes.data ?? []) as SessionAggRow[];
     const allTasks = (tasksRes.data ?? []) as TaskAggRow[];
 
-    // session_id -> project_id map (pour rattacher les tâches via leur session)
     const sessionToProject = new Map<string, string>();
     for (const s of allSessions) {
       if (s.project_id) sessionToProject.set(s.id, s.project_id);
@@ -121,7 +123,8 @@ export function ProjectsScreen({
     const { error } = await supabase.from("projects").insert({
       user_id: user.id,
       name: input.name.trim(),
-      emoji: input.emoji,
+      icon: input.icon,
+      color: input.color,
       project_type: input.project_type,
     });
     if (!error) {
@@ -214,8 +217,7 @@ export function ProjectsScreen({
             }}
           >
             Pas encore de projet.<br />
-            Crée-en un pour suivre ta progression : chaque session, livrable et tâche complétée fait avancer
-            ton projet d'un palier ({STAGES.map((s) => s.emoji + " " + s.name).join(" → ")}).
+            Crée-en un pour suivre ta progression : {STAGES.map((s) => s.name).join(" → ")}.
           </div>
         )}
 
@@ -224,36 +226,13 @@ export function ProjectsScreen({
             <ProjectCard
               key={p.id}
               project={p}
+              onOpen={() => onOpenProject(p.id)}
               onStart={() => onStartSession(p.id, p.project_type)}
               onDelete={() => deleteProject(p.id)}
               onOpenSession={onOpenSession}
             />
           ))}
         </div>
-
-        {/* Légende XP en pied de page */}
-        {!loading && projects.length > 0 && (
-          <div
-            style={{
-              marginTop: 22,
-              padding: "10px 14px",
-              background: C.white,
-              border: `1px dashed ${C.border}`,
-              borderRadius: 10,
-              fontSize: 11.5,
-              color: C.textSub,
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 14,
-              justifyContent: "center",
-            }}
-          >
-            <span><b style={{ color: C.text }}>+{XP_RULES.session} XP</b> par session</span>
-            <span><b style={{ color: C.text }}>+{XP_RULES.deliverable} XP</b> par livrable</span>
-            <span><b style={{ color: C.text }}>+{XP_RULES.taskDone} XP</b> par tâche faite</span>
-            <span><b style={{ color: C.text }}>+{XP_RULES.challenger} XP</b> en mode Challenger</span>
-          </div>
-        )}
       </div>
 
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} onCreate={createProject} />}
@@ -263,11 +242,13 @@ export function ProjectsScreen({
 
 function ProjectCard({
   project,
+  onOpen,
   onStart,
   onDelete,
   onOpenSession,
 }: {
   project: ProjectWithStats;
+  onOpen: () => void;
   onStart: () => void;
   onDelete: () => void;
   onOpenSession: (sessionId: string) => void;
@@ -276,7 +257,8 @@ function ProjectCard({
   const [expanded, setExpanded] = useState(false);
   const meta = PROJECT_TYPES[project.project_type];
   const { stats, sessions } = project;
-  const { stage, nextStage, progressToNext, xp } = stats;
+  const { stage, nextStage } = stats;
+  const currentIndex = STAGES.findIndex((s) => s.id === stage.id);
 
   return (
     <div
@@ -289,34 +271,46 @@ function ProjectCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-        <div
+        <button
+          onClick={onOpen}
+          title="Ouvrir le projet"
           style={{
             width: 44,
             height: 44,
             borderRadius: 11,
-            background: meta.bg,
-            border: `1.5px solid ${meta.color}25`,
+            background: project.color ?? meta.bg,
+            border: "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 22,
             flexShrink: 0,
+            cursor: "pointer",
+            padding: 0,
+            fontFamily: "inherit",
           }}
         >
-          {project.emoji ?? "🎯"}
-        </div>
+          <Icon name={(project.icon ?? "target") as IconName} size={22} color="white" />
+        </button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
+          <button
+            onClick={onOpen}
             style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              textAlign: "left",
               fontSize: 16,
               fontWeight: 800,
               color: C.text,
               letterSpacing: "-0.02em",
               lineHeight: 1.3,
+              width: "100%",
             }}
           >
             {project.name}
-          </div>
+          </button>
           <div
             style={{
               fontSize: 11.5,
@@ -333,15 +327,34 @@ function ProjectCard({
               {meta.name}
             </span>
             <span style={{ color: C.textMute }}>·</span>
-            <span style={{ fontWeight: 700, color: stage.color }}>
-              {stage.emoji} {stage.name}
+            <span style={{ fontWeight: 700, color: stage.color, display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Icon name={stage.icon as IconName} size={11} color={stage.color} />
+              {stage.name}
             </span>
-            <span style={{ color: C.textMute }}>·</span>
-            <span style={{ fontWeight: 700, color: C.text }}>{xp} XP</span>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+          <button
+            onClick={onOpen}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              background: C.white,
+              color: C.navy,
+              border: `1.5px solid ${C.navy}`,
+              borderRadius: 7,
+              padding: "6px 12px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <Icon name="tasks" size={11} color={C.navy} />
+            Tâches
+          </button>
           <button
             onClick={onStart}
             style={{
@@ -390,50 +403,49 @@ function ProjectCard({
         </div>
       </div>
 
-      {/* Progress bar vers le prochain palier */}
-      <div style={{ marginBottom: 12 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            fontSize: 11,
-            color: C.textSub,
-            marginBottom: 5,
-            fontWeight: 600,
-          }}
-        >
-          <span>
-            {nextStage
-              ? <>Vers <b style={{ color: nextStage.color }}>{nextStage.emoji} {nextStage.name}</b></>
-              : <b style={{ color: stage.color }}>Niveau max atteint 🏆</b>}
+      {/* Stepper des palliers */}
+      <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 12 }}>
+        {STAGES.map((s, i) => {
+          const done = i < currentIndex;
+          const active = i === currentIndex;
+          return (
+            <div key={s.id} style={{ display: "flex", alignItems: "center", flex: i < STAGES.length - 1 ? 1 : 0 }}>
+              <div
+                title={s.name}
+                style={{
+                  width: active ? 32 : 24,
+                  height: active ? 32 : 24,
+                  borderRadius: "50%",
+                  background: done || active ? s.color : C.bg,
+                  border: `2px solid ${done || active ? s.color : C.border}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  transition: "all 0.15s ease",
+                  boxShadow: active ? `0 0 0 3px ${s.color}25` : "none",
+                }}
+              >
+                {active ? <Icon name={s.icon as IconName} size={14} color="white" /> : done ? <Icon name="check" size={10} color="white" /> : null}
+              </div>
+              {i < STAGES.length - 1 && (
+                <div
+                  style={{
+                    flex: 1,
+                    height: 2,
+                    background: done ? s.color : C.border,
+                    transition: "background 0.2s ease",
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
+        {nextStage && (
+          <span style={{ fontSize: 10.5, color: C.textMute, marginLeft: 10, fontWeight: 600, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+            → <Icon name={nextStage.icon as IconName} size={10} color={C.textMute} /> {nextStage.name}
           </span>
-          {nextStage && (
-            <span style={{ color: C.textMute }}>
-              {xp} / {nextStage.minXp} XP
-            </span>
-          )}
-        </div>
-        <div
-          style={{
-            height: 7,
-            background: C.bg,
-            borderRadius: 100,
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              width: `${progressToNext}%`,
-              height: "100%",
-              background: nextStage
-                ? `linear-gradient(90deg, ${stage.color}, ${nextStage.color})`
-                : `linear-gradient(90deg, ${C.mint}, ${stage.color})`,
-              borderRadius: 100,
-              transition: "width 0.3s ease",
-            }}
-          />
-        </div>
+        )}
       </div>
 
       {/* Stats */}
@@ -620,12 +632,13 @@ function NewProjectModal({
   onCreate: (input: NewProjectInput) => void;
 }) {
   const [name, setName] = useState("");
-  const [emoji, setEmoji] = useState("🎯");
+  const [icon, setIcon] = useState<string>(PROJECT_ICONS[0]);
+  const [color, setColor] = useState<string>(PROJECT_COLORS[0]);
   const [type, setType] = useState<ProjectType>("perso");
 
   const submit = () => {
     if (!name.trim()) return;
-    onCreate({ name, emoji, project_type: type });
+    onCreate({ name, icon, color, project_type: type });
   };
 
   const overlay: CSSProperties = {
@@ -685,25 +698,47 @@ function NewProjectModal({
           }}
         />
 
-        <Label>Emoji</Label>
+        <Label>Icône</Label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-          {DEFAULT_EMOJIS.map((e) => (
+          {PROJECT_ICONS.map((ic) => (
             <button
-              key={e}
-              onClick={() => setEmoji(e)}
+              key={ic}
+              onClick={() => setIcon(ic)}
               style={{
                 width: 36,
                 height: 36,
-                fontSize: 20,
-                background: emoji === e ? C.navyLight : C.bg,
-                border: `1.5px solid ${emoji === e ? C.navy : "transparent"}`,
+                background: icon === ic ? color : C.bg,
+                border: `1.5px solid ${icon === ic ? color : "transparent"}`,
                 borderRadius: 8,
                 cursor: "pointer",
                 fontFamily: "inherit",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              {e}
+              <Icon name={ic as IconName} size={16} color={icon === ic ? "white" : C.textSub} />
             </button>
+          ))}
+        </div>
+
+        <Label>Couleur</Label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+          {PROJECT_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setColor(c)}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: c,
+                border: `2.5px solid ${color === c ? C.text : "transparent"}`,
+                cursor: "pointer",
+                padding: 0,
+                fontFamily: "inherit",
+              }}
+            />
           ))}
         </div>
 

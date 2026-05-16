@@ -3,7 +3,8 @@ import { ChatMessage, ProjectType } from "./data";
 export interface Project {
   id: string;
   name: string;
-  emoji: string | null;
+  icon: string | null;
+  color: string | null;
   project_type: ProjectType;
   created_at: string;
   updated_at: string;
@@ -12,7 +13,7 @@ export interface Project {
 export interface Stage {
   id: StageId;
   name: string;
-  emoji: string;
+  icon: string;
   minXp: number;
   color: string;
 }
@@ -20,11 +21,11 @@ export interface Stage {
 export type StageId = "ideation" | "validation" | "mvp" | "launch" | "traction";
 
 export const STAGES: readonly Stage[] = [
-  { id: "ideation",   name: "Idée",       emoji: "💡", minXp: 0,   color: "#94A3B8" },
-  { id: "validation", name: "Validation", emoji: "🔍", minXp: 50,  color: "#7C3AED" },
-  { id: "mvp",        name: "MVP",        emoji: "🚧", minXp: 150, color: "#D97706" },
-  { id: "launch",     name: "Lancement",  emoji: "🚀", minXp: 300, color: "#E8396A" },
-  { id: "traction",   name: "Traction",   emoji: "📈", minXp: 600, color: "#0E9F88" },
+  { id: "ideation",   name: "Idée",       icon: "lightbulb",  minXp: 0,   color: "#94A3B8" },
+  { id: "validation", name: "Validation", icon: "search",     minXp: 50,  color: "#7C3AED" },
+  { id: "mvp",        name: "MVP",        icon: "hammer",     minXp: 150, color: "#D97706" },
+  { id: "launch",     name: "Lancement",  icon: "rocket",     minXp: 300, color: "#E8396A" },
+  { id: "traction",   name: "Traction",   icon: "trendingUp", minXp: 600, color: "#0E9F88" },
 ];
 
 export const XP_RULES = {
@@ -103,4 +104,13 @@ export function computeStats(
   };
 }
 
-export const DEFAULT_EMOJIS = ["🎯", "🚀", "💡", "🌱", "💼", "✨", "🔥", "🧠", "📈", "🎨", "🛠️", "🌍"];
+export const PROJECT_ICONS = [
+  "target", "rocket", "lightbulb", "briefcase", "code", "chart",
+  "zap", "sparkles", "building", "sprout", "key", "globe",
+  "pencil", "book", "star", "layers", "hammer", "server",
+] as const;
+
+export const PROJECT_COLORS = [
+  "#E8396A", "#7C3AED", "#0E9F88", "#D97706", "#0EA5E9", "#264573",
+  "#16A34A", "#DC2626", "#EC4899", "#9333EA", "#0891B2", "#B45309",
+];

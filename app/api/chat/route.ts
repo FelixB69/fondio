@@ -144,23 +144,16 @@ export async function POST(req: Request) {
   const baseUrl = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
   const model = process.env.OLLAMA_MODEL ?? "llama3";
 
-  let raw: string;
+  const newTitle =
+    session.title ?? userMsg.content.slice(0, 60) + (userMsg.content.length > 60 ? "…" : "");
+
+  let ollamaRes: Response;
   try {
-    const res = await fetch(`${baseUrl}/api/chat`, {
+    ollamaRes = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, stream: false, messages: ollamaMessages }),
+      body: JSON.stringify({ model, stream: true, messages: ollamaMessages }),
     });
-    if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json(
-        { error: `Ollama a renvoyé ${res.status} : ${text.slice(0, 200)}` },
-        { status: 502 },
-      );
-    }
-    const json = (await res.json()) as { message?: { content?: string } };
-    raw = json.message?.content?.trim() ?? "";
-    if (!raw) return NextResponse.json({ error: "Réponse vide du modèle." }, { status: 502 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Erreur inconnue";
     const isConnRefused = msg.includes("ECONNREFUSED") || msg.includes("fetch failed");
@@ -173,46 +166,120 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-
-  const parsed = parseAgentReply(raw);
-  const assistantMsg: ChatMessage = {
-    role: "assistant",
-    content: parsed.content,
-    ts: new Date().toISOString(),
-  };
-  if (parsed.deliverables.length) assistantMsg.deliverables = parsed.deliverables;
-  if (parsed.challenges.length) assistantMsg.challenges = parsed.challenges;
-
-  // 2e passe : si Llama3 a annoncé des livrables, on demande à Qwen2.5-Coder
-  // (meilleur en sortie structurée) de les matérialiser en artefacts JSON.
-  // Échec silencieux : si Qwen n'est pas dispo ou répond mal, on garde juste
-  // les titres bruts dans `deliverables`.
-  if (parsed.deliverables.length) {
-    const artifacts = await generateArtifacts({
-      baseUrl,
-      conversation: updatedHistory,
-      assistantReply: parsed.content,
-      deliverableTitles: parsed.deliverables,
-    });
-    if (artifacts.length) assistantMsg.artifacts = artifacts;
+  if (!ollamaRes.ok || !ollamaRes.body) {
+    const text = await ollamaRes.text().catch(() => "");
+    return NextResponse.json(
+      { error: `Ollama a renvoyé ${ollamaRes.status} : ${text.slice(0, 200)}` },
+      { status: 502 },
+    );
   }
 
-  const finalMessages = [...updatedHistory, assistantMsg];
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const ollamaBody = ollamaRes.body;
 
-  const newTitle =
-    session.title ?? userMsg.content.slice(0, 60) + (userMsg.content.length > 60 ? "…" : "");
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: unknown) => {
+        controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      };
 
-  const { error: updErr } = await supabase
-    .from("sessions")
-    .update({
-      messages: finalMessages,
-      title: newTitle,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", sessionId);
-  if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+      let raw = "";
+      let buffer = "";
+      const reader = ollamaBody.getReader();
 
-  return NextResponse.json({ assistant: assistantMsg, title: newTitle });
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const json = JSON.parse(trimmed) as {
+                message?: { content?: string };
+                done?: boolean;
+              };
+              const chunk = json.message?.content;
+              if (chunk) {
+                raw += chunk;
+                send({ t: "chunk", c: chunk });
+              }
+            } catch {
+              // Ligne partielle ou JSON invalide — on ignore.
+            }
+          }
+        }
+      } catch (e: unknown) {
+        send({
+          t: "error",
+          error: e instanceof Error ? e.message : "Erreur de streaming.",
+        });
+        controller.close();
+        return;
+      }
+
+      raw = raw.trim();
+      if (!raw) {
+        send({ t: "error", error: "Réponse vide du modèle." });
+        controller.close();
+        return;
+      }
+
+      const parsed = parseAgentReply(raw);
+      const assistantMsg: ChatMessage = {
+        role: "assistant",
+        content: parsed.content,
+        ts: new Date().toISOString(),
+      };
+      if (parsed.deliverables.length) assistantMsg.deliverables = parsed.deliverables;
+      if (parsed.challenges.length) assistantMsg.challenges = parsed.challenges;
+
+      send({ t: "text-done", assistant: assistantMsg, title: newTitle });
+
+      // 2e passe : si Llama3 a annoncé des livrables, on demande à Qwen2.5-Coder
+      // (meilleur en sortie structurée) de les matérialiser en artefacts JSON.
+      // Échec silencieux : si Qwen n'est pas dispo ou répond mal, on garde juste
+      // les titres bruts dans `deliverables`.
+      if (parsed.deliverables.length) {
+        const artifacts = await generateArtifacts({
+          baseUrl,
+          conversation: updatedHistory,
+          assistantReply: parsed.content,
+          deliverableTitles: parsed.deliverables,
+        });
+        if (artifacts.length) {
+          assistantMsg.artifacts = artifacts;
+          send({ t: "artifacts", artifacts });
+        }
+      }
+
+      const finalMessages = [...updatedHistory, assistantMsg];
+      const { error: updErr } = await supabase
+        .from("sessions")
+        .update({
+          messages: finalMessages,
+          title: newTitle,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", sessionId);
+      if (updErr) send({ t: "error", error: updErr.message });
+
+      send({ t: "done" });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
 
 const ARTIFACT_MODEL = process.env.OLLAMA_ARTIFACT_MODEL ?? "qwen2.5-coder:7b";

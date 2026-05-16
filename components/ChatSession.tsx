@@ -306,6 +306,7 @@ interface ChatSessionProps {
   sessionId: string;
   agentId: AgentId;
   projectType: ProjectType;
+  projectId?: string | null;
   initialMessages: ChatMessage[];
   initialChallenger: boolean;
   onBack: () => void;
@@ -576,6 +577,7 @@ export function ChatSession({
   sessionId,
   agentId,
   projectType,
+  projectId,
   initialMessages,
   initialChallenger,
   onBack,
@@ -589,6 +591,8 @@ export function ChatSession({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
+  const [loadingArtifacts, setLoadingArtifacts] = useState(false);
   const [challenger, setChallenger] = useState(initialChallenger);
   const [error, setError] = useState<string | null>(null);
   const [taskedItems, setTaskedItems] = useState<Set<string>>(new Set());
@@ -620,7 +624,7 @@ export function ChatSession({
 
   useEffect(() => {
     if (messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-  }, [messages, loading]);
+  }, [messages, loading, streamingContent]);
 
   const convertToTask = useCallback(
     async (text: string) => {
@@ -630,9 +634,15 @@ export function ChatSession({
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+      const { data: sess } = await supabase
+        .from("sessions")
+        .select("project_id")
+        .eq("id", sessionId)
+        .single();
       await supabase.from("tasks").insert({
         user_id: user.id,
         session_id: sessionId,
+        project_id: sess?.project_id ?? null,
         content: text,
         status: "todo",
         source_agent_id: agentId,
@@ -645,7 +655,7 @@ export function ChatSession({
     const next = !challenger;
     setChallenger(next);
     await supabase.from("sessions").update({ challenger_mode: next }).eq("id", sessionId);
-  }, [challenger, sessionId, supabase]);
+  }, [challenger, sessionId, supabase, projectId]);
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || loading) return;
@@ -661,6 +671,7 @@ export function ChatSession({
     };
     setMessages((p) => [...p, userMsg]);
     setLoading(true);
+    setStreamingContent("");
 
     try {
       const res = await fetch("/api/chat", {
@@ -668,17 +679,74 @@ export function ChatSession({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, userMessage: trimmed }),
       });
-      const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({ error: "Erreur réseau." }));
         setError(data.error ?? "Erreur inconnue.");
         setMessages((p) => p.slice(0, -1));
         return;
       }
-      setMessages((p) => [...p, data.assistant as ChatMessage]);
-      if (data.title && onTitleChange) onTitleChange(data.title);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let rolledBack = false;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+          let evt: {
+            t: string;
+            c?: string;
+            assistant?: ChatMessage;
+            title?: string;
+            artifacts?: ChatMessage["artifacts"];
+            error?: string;
+          };
+          try {
+            evt = JSON.parse(trimmedLine);
+          } catch {
+            continue;
+          }
+          if (evt.t === "chunk" && typeof evt.c === "string") {
+            setStreamingContent((s) => s + evt.c);
+          } else if (evt.t === "text-done" && evt.assistant) {
+            const assistant = evt.assistant;
+            setMessages((p) => [...p, assistant]);
+            setStreamingContent("");
+            if (assistant.deliverables?.length) setLoadingArtifacts(true);
+            if (evt.title && onTitleChange) onTitleChange(evt.title);
+          } else if (evt.t === "artifacts" && evt.artifacts) {
+            const artifacts = evt.artifacts;
+            setMessages((p) => {
+              if (!p.length) return p;
+              const last = p[p.length - 1];
+              if (last.role !== "assistant") return p;
+              return [...p.slice(0, -1), { ...last, artifacts }];
+            });
+            setLoadingArtifacts(false);
+          } else if (evt.t === "done") {
+            setLoadingArtifacts(false);
+          } else if (evt.t === "error") {
+            setError(evt.error ?? "Erreur inconnue.");
+            if (!rolledBack) {
+              setMessages((p) => p.slice(0, -1));
+              rolledBack = true;
+            }
+            setStreamingContent("");
+            setLoadingArtifacts(false);
+          }
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
       setMessages((p) => p.slice(0, -1));
+      setStreamingContent("");
     } finally {
       setLoading(false);
     }
@@ -830,7 +898,48 @@ export function ChatSession({
             taskedItems={taskedItems}
           />
         ))}
-        {loading && <TypingDots agentId={agentId} />}
+        {streamingContent && (
+          <MessageBubble
+            msg={{
+              role: "assistant",
+              // On coupe à LIVRABLES:/CHALLENGES: pour ne pas montrer la
+              // section structurée en texte brut pendant le streaming —
+              // elle sera rendue proprement au `text-done`.
+              content: streamingContent.split(/\n\s*(?:LIVRABLES|CHALLENGES)\s*:/i)[0],
+              ts: new Date().toISOString(),
+            }}
+            agentId={agentId}
+            onConvertToTask={convertToTask}
+            taskedItems={taskedItems}
+          />
+        )}
+        {loading && !streamingContent && !loadingArtifacts && <TypingDots agentId={agentId} />}
+        {loadingArtifacts && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", paddingLeft: 38 }}>
+            <div
+              style={{
+                fontSize: 12,
+                color: agent.color,
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <div
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: agent.color,
+                  animation: "fndBounce 1.1s ease-in-out infinite",
+                  opacity: 0.7,
+                }}
+              />
+              Chargement des livrables en cours…
+            </div>
+          </div>
+        )}
         <div />
       </div>
 

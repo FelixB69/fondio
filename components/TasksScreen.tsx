@@ -30,7 +30,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
     setLoading(true);
     const { data } = await supabase
       .from("tasks")
-      .select("id, session_id, content, status, source_agent_id, created_at, completed_at")
+      .select("id, session_id, project_id, content, status, source_agent_id, created_at, completed_at")
       .order("created_at", { ascending: false });
     setTasks((data ?? []) as Task[]);
     setLoading(false);

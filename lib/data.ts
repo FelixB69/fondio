@@ -93,6 +93,7 @@ export type TaskStatus = "todo" | "doing" | "done";
 export interface Task {
   id: string;
   session_id: string | null;
+  project_id: string | null;
   content: string;
   status: TaskStatus;
   source_agent_id: AgentId | null;
