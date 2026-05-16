@@ -647,9 +647,10 @@ function NewProjectModal({
     background: "rgba(0,0,0,0.45)",
     zIndex: 200,
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "center",
     padding: 16,
+    overflowY: "auto",
     animation: "fndFadeIn 0.15s ease",
   };
 
@@ -659,6 +660,7 @@ function NewProjectModal({
     padding: "20px 22px",
     width: "100%",
     maxWidth: 420,
+    margin: "auto",
     boxShadow: C.shadowMd,
   };
 

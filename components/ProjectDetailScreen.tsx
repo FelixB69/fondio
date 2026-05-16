@@ -59,7 +59,7 @@ export function ProjectDetailScreen({
     const [projRes, tasksRes, sessRes] = await Promise.all([
       supabase
         .from("projects")
-        .select("id, name, emoji, project_type, stage, created_at, updated_at, user_id")
+        .select("id, name, icon, color, project_type, stage, created_at, updated_at")
         .eq("id", projectId)
         .single(),
       supabase
@@ -97,7 +97,7 @@ export function ProjectDetailScreen({
 
   const stats: ProjectStats | null = useMemo(() => {
     if (!project) return null;
-    return computeStats(sessions, grouped.done.length, project.stage);
+    return computeStats(sessions, grouped.done.length);
   }, [project, sessions, grouped.done.length]);
 
   const updateStage = async (stage: StageId) => {
@@ -214,7 +214,7 @@ export function ProjectDetailScreen({
                   flexShrink: 0,
                 }}
               >
-                {project.emoji ?? "🎯"}
+                <Icon name={(project.icon ?? "target") as IconName} size={22} color="white" />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
@@ -304,7 +304,7 @@ export function ProjectDetailScreen({
                         boxShadow: active ? `0 0 0 3px ${s.color}25` : "none",
                       }}
                     >
-                      {active ? s.emoji : done ? <Icon name="check" size={9} color="white" /> : null}
+                      {active ? <Icon name={s.icon as IconName} size={13} color="white" /> : done ? <Icon name="check" size={9} color="white" /> : null}
                     </button>
                     {i < STAGES.length - 1 && (
                       <div
@@ -319,8 +319,8 @@ export function ProjectDetailScreen({
                   </div>
                 );
               })}
-              <span style={{ fontSize: 10.5, color: stats.stage.color, marginLeft: 10, fontWeight: 700, whiteSpace: "nowrap" }}>
-                {stats.stage.emoji} {stats.stage.name}
+              <span style={{ fontSize: 10.5, color: stats.stage.color, marginLeft: 10, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon name={stats.stage.icon as IconName} size={11} color={stats.stage.color} /> {stats.stage.name}
               </span>
             </div>
 

@@ -6,6 +6,7 @@ export interface Project {
   icon: string | null;
   color: string | null;
   project_type: ProjectType;
+  stage: StageId;
   created_at: string;
   updated_at: string;
 }

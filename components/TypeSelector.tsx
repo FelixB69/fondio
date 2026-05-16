@@ -12,15 +12,14 @@ export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => vo
       style={{
         flex: 1,
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+        flexDirection: "column",
         padding: isMobile ? "24px 16px" : 32,
         background: C.bg,
         animation: "fndFadeIn 0.22s ease",
         overflowY: "auto",
       }}
     >
-      <div style={{ width: "100%", maxWidth: 720 }}>
+      <div style={{ width: "100%", maxWidth: 720, margin: "auto" }}>
         <div style={{ textAlign: "center", marginBottom: isMobile ? 24 : 36 }}>
           <div
             style={{

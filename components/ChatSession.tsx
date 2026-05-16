@@ -960,7 +960,7 @@ export function ChatSession({
       {/* Input */}
       <div
         style={{
-          padding: isMobile ? "10px 12px 12px" : "12px 20px 16px",
+          padding: isMobile ? "10px 12px calc(12px + env(safe-area-inset-bottom))" : "12px 20px 16px",
           background: C.white,
           borderTop: `1px solid ${C.border}`,
           flexShrink: 0,

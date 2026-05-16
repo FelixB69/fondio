@@ -13,12 +13,12 @@ function AuthBrand() {
   return (
     <div
       style={{
-        width: 440,
+        width: 420,
         flexShrink: 0,
         background: `linear-gradient(160deg, #1a3260 0%, ${C.navy} 50%, #1e4d7a 100%)`,
         display: "flex",
         flexDirection: "column",
-        padding: "52px 48px",
+        padding: "36px 40px",
         position: "relative",
         overflow: "hidden",
       }}
@@ -28,8 +28,8 @@ function AuthBrand() {
           position: "absolute",
           top: -80,
           right: -80,
-          width: 320,
-          height: 320,
+          width: 280,
+          height: 280,
           borderRadius: "50%",
           background: `${C.mint}18`,
         }}
@@ -39,38 +39,38 @@ function AuthBrand() {
           position: "absolute",
           bottom: -60,
           left: -60,
-          width: 260,
-          height: 260,
+          width: 220,
+          height: 220,
           borderRadius: "50%",
           background: `${C.pink}14`,
         }}
       />
 
-      <div style={{ marginBottom: 56, position: "relative" }}>
-        <img src="/fondio-logo.png" alt="Fondio" style={{ height: 60, width: "auto", display: "block" }} />
+      <div style={{ marginBottom: 28, position: "relative" }}>
+        <img src="/fondio-logo.png" alt="Fondio" style={{ height: 44, width: "auto", display: "block" }} />
       </div>
 
-      <div style={{ position: "relative", marginBottom: 40 }}>
+      <div style={{ position: "relative", marginBottom: 22 }}>
         <h2
           style={{
-            margin: "0 0 14px",
-            fontSize: 28,
+            margin: "0 0 10px",
+            fontSize: 22,
             fontWeight: 800,
             color: "white",
             letterSpacing: "-0.03em",
             lineHeight: 1.25,
           }}
         >
-          Vos conseillers IA
+          Vos conseillers IA spécialisés,{" "}
           <br />
-          spécialisés, en local (100% confidentiel).
+          en local (100% confidentiel).
         </h2>
-        <p style={{ margin: 0, fontSize: 14.5, color: "rgba(255,255,255,0.6)", lineHeight: 1.65 }}>
-          Stratégie, finance, lancement, reconversion. Sessions structurées avec livrables et mode challenger. Tourne sur Llama3 & Qwen2.5-Coder, tout en restant sur nos serveurs privés.
+        <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.6)", lineHeight: 1.6 }}>
+          Stratégie, finance, lancement, reconversion. Sessions structurées avec livrables et mode challenger. Tourne sur Llama3 & Qwen2.5-Coder, tout en restant sur nos serveurs. 
         </p>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, position: "relative" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7, position: "relative" }}>
         {featuredIds.map((id, i) => {
           const agent = AGENTS[id];
           return (
@@ -79,35 +79,34 @@ function AuthBrand() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 12,
+                gap: 10,
                 background: "rgba(255,255,255,0.07)",
-                borderRadius: 10,
-                padding: "10px 14px",
+                borderRadius: 9,
+                padding: "8px 12px",
                 border: "1px solid rgba(255,255,255,0.10)",
                 backdropFilter: "blur(4px)",
-                transform: `translateX(${i % 2 === 0 ? 0 : 12}px)`,
+                transform: `translateX(${i % 2 === 0 ? 0 : 10}px)`,
               }}
             >
               <div
                 style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 7,
                   background: agent.bg,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   flexShrink: 0,
-                  fontSize: 15,
                 }}
               >
-                <Icon name={agent.icon as IconName} size={15} color={agent.color} />
+                <Icon name={agent.icon as IconName} size={13} color={agent.color} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: "rgba(255,255,255,0.92)" }}>{agent.name}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.92)" }}>{agent.name}</div>
                 <div
                   style={{
-                    fontSize: 11,
+                    fontSize: 10.5,
                     color: "rgba(255,255,255,0.45)",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -122,7 +121,7 @@ function AuthBrand() {
         })}
       </div>
 
-      <div style={{ marginTop: "auto", paddingTop: 32, fontSize: 12, color: "rgba(255,255,255,0.45)", position: "relative" }}>
+      <div style={{ marginTop: "auto", paddingTop: 20, fontSize: 11, color: "rgba(255,255,255,0.4)", position: "relative" }}>
         100 % local · aucune donnée envoyée à un service externe.
       </div>
     </div>
@@ -514,8 +513,56 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
   const isMobile = useIsMobile();
   const showBrand = !isMobile && (view === "login" || view === "signup");
 
+  if (isMobile) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          width: "100vw",
+          height: "100dvh",
+          background: `linear-gradient(160deg, #1a3260 0%, ${C.navy} 50%, #1e4d7a 100%)`,
+          overflow: "hidden",
+        }}
+      >
+        {/* Header bleu avec logo */}
+        <div
+          style={{
+            padding: "52px 28px 28px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 12,
+            flexShrink: 0,
+          }}
+        >
+          <img src="/fondio-logo.png" alt="Fondio" style={{ height: 44, width: "auto", display: "block" }} />
+          {(view === "login" || view === "signup") && (
+            <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.55)", textAlign: "center", lineHeight: 1.5 }}>
+              Vos conseillers IA spécialisés, en local.
+            </p>
+          )}
+        </div>
+
+        {/* Carte blanche avec le formulaire */}
+        <div
+          style={{
+            flex: 1,
+            background: C.white,
+            borderRadius: "22px 22px 0 0",
+            padding: "28px 24px 32px",
+            overflowY: "auto",
+            animation: "fndFadeIn 0.22s ease",
+          }}
+        >
+          {content[view]()}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden", background: C.bg }}>
+    <div style={{ display: "flex", width: "100vw", height: "100dvh", overflow: "hidden", background: C.bg }}>
       {showBrand && <AuthBrand />}
       <div
         style={{
@@ -523,24 +570,12 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          padding: isMobile ? "24px 20px" : 32,
+          padding: 32,
           overflowY: "auto",
           background: C.white,
         }}
       >
-        {isMobile && (view === "login" || view === "signup") && (
-          <div style={{ position: "absolute", top: 24, left: "50%", transform: "translateX(-50%)" }}>
-            <img src="/fondio-logo.png" alt="Fondio" style={{ height: 48, width: "auto", display: "block" }} />
-          </div>
-        )}
-        <div
-          style={{
-            width: "100%",
-            maxWidth: 420,
-            marginTop: isMobile && (view === "login" || view === "signup") ? 64 : 0,
-            animation: "fndFadeIn 0.22s ease",
-          }}
-        >
+        <div style={{ width: "100%", maxWidth: 420, animation: "fndFadeIn 0.22s ease" }}>
           {content[view]()}
         </div>
       </div>

@@ -264,7 +264,7 @@ export function App() {
   }, []);
 
   if (screen === "loading") {
-    return <div style={{ width: "100vw", height: "100vh", background: "#F6F8FC" }} />;
+    return <div style={{ width: "100vw", height: "100dvh", background: "#F6F8FC" }} />;
   }
 
   if (screen === "auth") {
@@ -378,7 +378,7 @@ export function App() {
   };
 
   return (
-    <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden" }}>
+    <div style={{ display: "flex", width: "100vw", height: "100dvh", overflow: "hidden" }}>
       {isMobile && sidebarOpen && (
         <div
           onClick={() => setSidebarOpen(false)}

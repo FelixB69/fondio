@@ -156,7 +156,7 @@ export function Sidebar({
     <div
       style={{
         width: 244,
-        height: "100vh",
+        height: "100dvh",
         background: C.white,
         borderRight: `1px solid ${C.border}`,
         display: "flex",
