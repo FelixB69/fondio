@@ -50,6 +50,9 @@ export interface ChatMessage {
   // Panel multi-agent : identifie quel agent a émis ce message.
   // "__synthesis__" pour le message de synthèse final.
   agentId?: AgentId | "__synthesis__";
+  // Indique quel provider LLM a généré la réponse (Ollama local vs API cloud).
+  provider?: "local" | "cloud";
+  providerLabel?: string;
 }
 
 export type Artifact =
@@ -141,6 +144,7 @@ LIVRABLES:
 3. N'écris JAMAIS la section LIVRABLES si tu n'as rien de concret à livrer ce tour-ci.
 4. En particulier : si tu poses encore des questions de cadrage, PAS de LIVRABLES.
 5. Pas de JSON, pas de markdown lourd, pas d'emojis dans la réponse.
+6. Le titre de section doit être EXACTEMENT \`LIVRABLES:\` sur sa propre ligne. Pas de **, pas de #, pas de ###, pas d'espace avant le \`:\`. Idem pour \`CHALLENGES:\`. Sinon le système ne les détecte pas.
 `.trim();
 
 const CHALLENGER_INSTRUCTIONS = `

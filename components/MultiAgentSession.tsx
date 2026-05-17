@@ -197,6 +197,39 @@ function TypingDots({ color, label }: { color: string; label: string }) {
   );
 }
 
+function ProviderBadge({
+  provider,
+  label,
+}: {
+  provider: "local" | "cloud";
+  label?: string;
+}) {
+  const isCloud = provider === "cloud";
+  const color = isCloud ? "#D97706" : "#16A34A";
+  const icon = isCloud ? "☁" : "●";
+  const text = label ?? (isCloud ? "Mistral Cloud" : "Modèle local");
+  return (
+    <span
+      title={
+        isCloud
+          ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
+          : "Réponse générée par ton modèle Ollama local."
+      }
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 10.5,
+        color,
+        fontWeight: 600,
+      }}
+    >
+      <span style={{ fontSize: isCloud ? 11 : 7, lineHeight: 1 }}>{icon}</span>
+      {text}
+    </span>
+  );
+}
+
 function WaitingIndicator({ label }: { label: string }) {
   return (
     <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 6 }}>
@@ -239,9 +272,15 @@ function AgentReplyBubble({
         {agent.firstName[0]}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: agent.color }}>{agent.firstName}</span>
           <span style={{ fontSize: 10.5, color: C.textMute }}>{formatTs(msg.ts)}</span>
+          {msg.provider && (
+            <>
+              <span style={{ fontSize: 10, color: C.textMute }}>·</span>
+              <ProviderBadge provider={msg.provider} label={msg.providerLabel} />
+            </>
+          )}
         </div>
         <div
           style={{
@@ -276,11 +315,17 @@ function SynthesisBubble({ msg, panelAgents }: { msg: ChatMessage; panelAgents: 
         boxShadow: C.shadow,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
         <Icon name="sparkles" size={16} color={SYNTHESIS_META.color} />
         <span style={{ fontSize: 12.5, fontWeight: 800, color: SYNTHESIS_META.color, letterSpacing: "0.02em" }}>
           Synthèse du panel
         </span>
+        {msg.provider && (
+          <>
+            <span style={{ fontSize: 10, color: C.textMute }}>·</span>
+            <ProviderBadge provider={msg.provider} label={msg.providerLabel} />
+          </>
+        )}
         <span style={{ fontSize: 10.5, color: C.textMute, marginLeft: "auto" }}>{formatTs(msg.ts)}</span>
       </div>
       <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.85, whiteSpace: "pre-wrap" }}>

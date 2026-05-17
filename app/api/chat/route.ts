@@ -8,6 +8,13 @@ import {
   type ChatMessage,
   type ProjectType,
 } from "@/lib/data";
+import {
+  callChatModel,
+  callChatModelStream,
+  describeLLMError,
+  type LLMMessage,
+} from "@/lib/llm";
+import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -15,65 +22,6 @@ export const runtime = "nodejs";
 interface ChatRequest {
   sessionId: string;
   userMessage: string;
-}
-
-interface OllamaMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
-// Parse une réponse Mistral au format texte avec sections marquées.
-// Retourne { content, deliverables, challenges } — robuste : si rien ne matche
-// on renvoie le texte brut comme content.
-function parseAgentReply(raw: string): {
-  content: string;
-  deliverables: string[];
-  challenges: string[];
-} {
-  const jsonMatch = raw.match(/\{[\s\S]*"message"[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (typeof parsed.message === "string") {
-        return {
-          content: parsed.message.trim(),
-          deliverables: Array.isArray(parsed.deliverables) ? parsed.deliverables : [],
-          challenges: Array.isArray(parsed.challenges) ? parsed.challenges : [],
-        };
-      }
-    } catch {
-      // Tombe dans le parsing texte ci-dessous.
-    }
-  }
-
-  const extractSection = (label: string): { items: string[]; start: number; end: number } => {
-    const re = new RegExp(`^[\\s>*_-]*${label}\\s*:?\\s*$`, "im");
-    const m = raw.match(re);
-    if (!m || m.index === undefined) return { items: [], start: -1, end: -1 };
-    const start = m.index;
-    const after = raw.slice(start + m[0].length);
-    const stopMatch = after.match(/\n\s*[A-ZÉÈÀ]{3,}[A-ZÉÈÀ ]*:/);
-    const stopIdx = stopMatch && stopMatch.index !== undefined ? stopMatch.index : after.length;
-    const block = after.slice(0, stopIdx);
-    const items = block
-      .split("\n")
-      .map((line) => line.replace(/^[\s>*_-]+/, "").trim())
-      .filter((line) => line.length > 0);
-    return { items, start, end: start + m[0].length + stopIdx };
-  };
-
-  const liv = extractSection("LIVRABLES");
-  const cha = extractSection("CHALLENGES");
-
-  const cuts = [liv.start, cha.start].filter((n) => n >= 0);
-  const cutAt = cuts.length > 0 ? Math.min(...cuts) : raw.length;
-  const content = raw.slice(0, cutAt).trim();
-
-  return {
-    content: content || raw.trim(),
-    deliverables: liv.items,
-    challenges: cha.items,
-  };
 }
 
 export async function POST(req: Request) {
@@ -148,47 +96,23 @@ export async function POST(req: Request) {
       isFirstReply && firstName ? firstName : undefined,
     ) + previousContext;
 
-  const ollamaMessages: OllamaMessage[] = [
+  const llmMessages: LLMMessage[] = [
     { role: "system", content: systemPrompt },
     ...updatedHistory.map((m) => ({ role: m.role, content: m.content })),
   ];
 
-  const baseUrl = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-  const model = process.env.OLLAMA_MODEL ?? "llama3";
-
   const newTitle =
     session.title ?? userMsg.content.slice(0, 60) + (userMsg.content.length > 60 ? "…" : "");
 
-  let ollamaRes: Response;
+  let streamResult: Awaited<ReturnType<typeof callChatModelStream>>;
   try {
-    ollamaRes = await fetch(`${baseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, stream: true, messages: ollamaMessages }),
-    });
+    streamResult = await callChatModelStream(llmMessages);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Erreur inconnue";
-    const isConnRefused = msg.includes("ECONNREFUSED") || msg.includes("fetch failed");
-    return NextResponse.json(
-      {
-        error: isConnRefused
-          ? `Ollama n'est pas démarré sur ${baseUrl}. Lance \`ollama serve\` dans un terminal.`
-          : msg,
-      },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: describeLLMError(e) }, { status: 503 });
   }
-  if (!ollamaRes.ok || !ollamaRes.body) {
-    const text = await ollamaRes.text().catch(() => "");
-    return NextResponse.json(
-      { error: `Ollama a renvoyé ${ollamaRes.status} : ${text.slice(0, 200)}` },
-      { status: 502 },
-    );
-  }
+  const { provider, providerLabel, data: textStream } = streamResult;
 
   const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  const ollamaBody = ollamaRes.body;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -196,34 +120,17 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
       };
 
+      // Pré-annonce : on signale immédiatement au client quel provider répond,
+      // avant même le 1er chunk. L'UI peut afficher "Réponse via …" en haut du
+      // bloc qui se construit.
+      send({ t: "provider", provider, providerLabel });
+
       let raw = "";
-      let buffer = "";
-      const reader = ollamaBody.getReader();
 
       try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            try {
-              const json = JSON.parse(trimmed) as {
-                message?: { content?: string };
-                done?: boolean;
-              };
-              const chunk = json.message?.content;
-              if (chunk) {
-                raw += chunk;
-                send({ t: "chunk", c: chunk });
-              }
-            } catch {
-              // Ligne partielle ou JSON invalide — on ignore.
-            }
-          }
+        for await (const chunk of textStream) {
+          raw += chunk;
+          send({ t: "chunk", c: chunk });
         }
       } catch (e: unknown) {
         send({
@@ -246,6 +153,8 @@ export async function POST(req: Request) {
         role: "assistant",
         content: parsed.content,
         ts: new Date().toISOString(),
+        provider,
+        providerLabel,
       };
       if (parsed.deliverables.length) assistantMsg.deliverables = parsed.deliverables;
       if (parsed.challenges.length) assistantMsg.challenges = parsed.challenges;
@@ -258,7 +167,6 @@ export async function POST(req: Request) {
       // les titres bruts dans `deliverables`.
       if (parsed.deliverables.length) {
         const artifacts = await generateArtifacts({
-          baseUrl,
           conversation: updatedHistory,
           assistantReply: parsed.content,
           deliverableTitles: parsed.deliverables,
@@ -294,15 +202,12 @@ export async function POST(req: Request) {
   });
 }
 
-const ARTIFACT_MODEL = process.env.OLLAMA_ARTIFACT_MODEL ?? "qwen2.5-coder:7b";
-
 async function generateArtifacts(args: {
-  baseUrl: string;
   conversation: ChatMessage[];
   assistantReply: string;
   deliverableTitles: string[];
 }): Promise<Artifact[]> {
-  const { baseUrl, conversation, assistantReply, deliverableTitles } = args;
+  const { conversation, assistantReply, deliverableTitles } = args;
 
   // On ne renvoie que les ~6 derniers tours pour limiter le contexte.
   const recent = conversation.slice(-6);
@@ -324,24 +229,13 @@ ${deliverableTitles.map((t) => `- ${t}`).join("\n")}
 Produis le contenu complet de chaque livrable au format JSON décrit.`;
 
   try {
-    const res = await fetch(`${baseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: ARTIFACT_MODEL,
-        stream: false,
-        format: "json",
-        messages: [
-          { role: "system", content: ARTIFACTS_FORMAT_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-      }),
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { message?: { content?: string } };
-    const raw = json.message?.content?.trim();
-    if (!raw) return [];
-
+    const { data: raw } = await callChatModel(
+      [
+        { role: "system", content: ARTIFACTS_FORMAT_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      { jsonMode: true, useArtifactModel: true },
+    );
     const parsed = JSON.parse(raw) as { artifacts?: unknown };
     if (!Array.isArray(parsed.artifacts)) return [];
 

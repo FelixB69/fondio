@@ -9,6 +9,8 @@ import {
   type ChatMessage,
   type ProjectType,
 } from "@/lib/data";
+import { callChatModel, describeLLMError, type LLMMessage } from "@/lib/llm";
+import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -32,74 +34,12 @@ interface SynthesisRequest {
 
 type PanelChatRequest = AgentStepRequest | SynthesisRequest;
 
-interface OllamaMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
-function parseAgentReply(raw: string): {
-  content: string;
-  deliverables: string[];
-  challenges: string[];
-} {
-  const extractSection = (label: string): { items: string[]; start: number; end: number } => {
-    const re = new RegExp(`^[\\s>*_-]*${label}\\s*:?\\s*$`, "im");
-    const m = raw.match(re);
-    if (!m || m.index === undefined) return { items: [], start: -1, end: -1 };
-    const start = m.index;
-    const after = raw.slice(start + m[0].length);
-    const stopMatch = after.match(/\n\s*[A-ZÉÈÀ]{3,}[A-ZÉÈÀ ]*:/);
-    const stopIdx = stopMatch && stopMatch.index !== undefined ? stopMatch.index : after.length;
-    const block = after.slice(0, stopIdx);
-    const items = block
-      .split("\n")
-      .map((line) => line.replace(/^[\s>*_-]+/, "").trim())
-      .filter((line) => line.length > 0);
-    return { items, start, end: start + m[0].length + stopIdx };
-  };
-
-  const liv = extractSection("LIVRABLES");
-  const cha = extractSection("CHALLENGES");
-
-  const cuts = [liv.start, cha.start].filter((n) => n >= 0);
-  const cutAt = cuts.length > 0 ? Math.min(...cuts) : raw.length;
-  const content = raw.slice(0, cutAt).trim();
-
-  return {
-    content: content || raw.trim(),
-    deliverables: liv.items,
-    challenges: cha.items,
-  };
-}
-
-async function callOllama(
-  baseUrl: string,
-  model: string,
-  messages: OllamaMessage[],
-): Promise<string> {
-  const res = await fetch(`${baseUrl}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, stream: false, messages }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Ollama ${res.status}: ${text.slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { message?: { content?: string } };
-  const raw = json.message?.content?.trim() ?? "";
-  if (!raw) throw new Error("Réponse vide du modèle.");
-  return raw;
-}
-
 async function generateArtifacts(args: {
-  baseUrl: string;
   conversation: ChatMessage[];
   assistantReply: string;
   deliverableTitles: string[];
 }): Promise<Artifact[]> {
-  const { baseUrl, conversation, assistantReply, deliverableTitles } = args;
-  const ARTIFACT_MODEL = process.env.OLLAMA_ARTIFACT_MODEL ?? "qwen2.5-coder:7b";
+  const { conversation, assistantReply, deliverableTitles } = args;
 
   const recent = conversation.slice(-6);
   const transcript = recent
@@ -109,24 +49,13 @@ async function generateArtifacts(args: {
   const userPrompt = `Conversation récente :\n\n${transcript}\n\nDernière réponse :\n\n${assistantReply}\n\nLivrables annoncés :\n${deliverableTitles.map((t) => `- ${t}`).join("\n")}\n\nProduis le contenu complet de chaque livrable au format JSON décrit.`;
 
   try {
-    const res = await fetch(`${baseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: ARTIFACT_MODEL,
-        stream: false,
-        format: "json",
-        messages: [
-          { role: "system", content: ARTIFACTS_FORMAT_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-      }),
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { message?: { content?: string } };
-    const raw = json.message?.content?.trim();
-    if (!raw) return [];
-
+    const { data: raw } = await callChatModel(
+      [
+        { role: "system", content: ARTIFACTS_FORMAT_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      { jsonMode: true, useArtifactModel: true },
+    );
     const parsed = JSON.parse(raw) as { artifacts?: unknown };
     if (!Array.isArray(parsed.artifacts)) return [];
 
@@ -186,8 +115,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Session introuvable." }, { status: 404 });
   }
 
-  const baseUrl = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-  const model = process.env.OLLAMA_MODEL ?? "llama3";
   const history: ChatMessage[] = Array.isArray(session.messages) ? session.messages : [];
   const now = new Date().toISOString();
 
@@ -199,7 +126,7 @@ export async function POST(req: Request) {
       .map((r) => `--- ${AGENTS[r.agentId].name} ---\n${r.content}`)
       .join("\n\n");
 
-    const ollamaMessages: OllamaMessage[] = [
+    const llmMessages: LLMMessage[] = [
       { role: "system", content: buildSynthesisSystemPrompt() },
       {
         role: "user",
@@ -208,10 +135,15 @@ export async function POST(req: Request) {
     ];
 
     let raw: string;
+    let provider: "local" | "cloud";
+    let providerLabel: string;
     try {
-      raw = await callOllama(baseUrl, model, ollamaMessages);
+      const result = await callChatModel(llmMessages);
+      raw = result.data;
+      provider = result.provider;
+      providerLabel = result.providerLabel;
     } catch (e: unknown) {
-      return NextResponse.json({ error: e instanceof Error ? e.message : "Erreur Ollama." }, { status: 503 });
+      return NextResponse.json({ error: describeLLMError(e) }, { status: 503 });
     }
 
     const parsed = parseAgentReply(raw);
@@ -220,6 +152,8 @@ export async function POST(req: Request) {
       agentId: "__synthesis__",
       content: parsed.content,
       ts: now,
+      provider,
+      providerLabel,
     };
     if (parsed.deliverables.length) synthesisMsg.deliverables = parsed.deliverables;
 
@@ -268,9 +202,9 @@ export async function POST(req: Request) {
     isFirstReply && firstName ? firstName : undefined,
   );
 
-  // On n'inclut que les messages user dans l'historique Ollama (les réponses
+  // On n'inclut que les messages user dans l'historique (les réponses
   // des autres agents panel sont injectées via le system prompt).
-  const ollamaMessages: OllamaMessage[] = [
+  const llmMessages: LLMMessage[] = [
     { role: "system", content: systemPrompt },
     ...updatedHistory
       .filter((m) => m.role === "user")
@@ -278,19 +212,15 @@ export async function POST(req: Request) {
   ];
 
   let raw: string;
+  let provider: "local" | "cloud";
+  let providerLabel: string;
   try {
-    raw = await callOllama(baseUrl, model, ollamaMessages);
+    const result = await callChatModel(llmMessages);
+    raw = result.data;
+    provider = result.provider;
+    providerLabel = result.providerLabel;
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Erreur inconnue";
-    const isConnRefused = msg.includes("ECONNREFUSED") || msg.includes("fetch failed");
-    return NextResponse.json(
-      {
-        error: isConnRefused
-          ? `Ollama n'est pas démarré sur ${baseUrl}. Lance \`ollama serve\` dans un terminal.`
-          : msg,
-      },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: describeLLMError(e) }, { status: 503 });
   }
 
   const parsed = parseAgentReply(raw);
@@ -299,6 +229,8 @@ export async function POST(req: Request) {
     agentId,
     content: parsed.content,
     ts: now,
+    provider,
+    providerLabel,
   };
   if (parsed.deliverables.length) agentMsg.deliverables = parsed.deliverables;
   if (parsed.challenges.length) agentMsg.challenges = parsed.challenges;
@@ -306,7 +238,6 @@ export async function POST(req: Request) {
   // Génération d'artefacts si des livrables ont été annoncés
   if (parsed.deliverables.length) {
     const artifacts = await generateArtifacts({
-      baseUrl,
       conversation: updatedHistory,
       assistantReply: parsed.content,
       deliverableTitles: parsed.deliverables,

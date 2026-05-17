@@ -317,6 +317,74 @@ function formatTs(iso: string): string {
   return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function ProviderBadge({
+  provider,
+  label,
+  variant = "compact",
+}: {
+  provider: "local" | "cloud";
+  label?: string;
+  variant?: "compact" | "announce";
+}) {
+  const isCloud = provider === "cloud";
+  const color = isCloud ? "#D97706" : "#16A34A";
+  const bg = isCloud ? "#FFF7ED" : "#F0FDF4";
+  const border = isCloud ? "#FED7AA" : "#BBF7D0";
+  const icon = isCloud ? "☁" : "●";
+  const text =
+    label ?? (isCloud ? "Mistral Cloud" : "Modèle local");
+
+  if (variant === "announce") {
+    return (
+      <div
+        title={
+          isCloud
+            ? "Ollama local indisponible — bascule automatique sur l'API Mistral (EU)."
+            : "Réponse générée par ton modèle Ollama local."
+        }
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 11,
+          color,
+          background: bg,
+          border: `1px solid ${border}`,
+          borderRadius: 999,
+          padding: "3px 9px",
+          fontWeight: 600,
+          marginBottom: 6,
+        }}
+      >
+        <span style={{ fontSize: isCloud ? 12 : 8, lineHeight: 1 }}>{icon}</span>
+        {isCloud ? `Réponse via ${text}…` : `Réponse via ${text}…`}
+      </div>
+    );
+  }
+
+  return (
+    <span
+      title={
+        isCloud
+          ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
+          : "Réponse générée par ton modèle Ollama local."
+      }
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 10.5,
+        color,
+        fontWeight: 600,
+        letterSpacing: 0.1,
+      }}
+    >
+      <span style={{ fontSize: isCloud ? 11 : 7, lineHeight: 1 }}>{icon}</span>
+      {text}
+    </span>
+  );
+}
+
 function AgentAvatar({ agentId, size = 32 }: { agentId: AgentId; size?: number }) {
   const agent = AGENTS[agentId];
   return (
@@ -515,9 +583,15 @@ function MessageBubble({
     <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
       <AgentAvatar agentId={agentId} size={28} />
       <div style={{ flex: 1, maxWidth: "82%" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: agent.color }}>{agent.firstName}</span>
           <span style={{ fontSize: 11, color: C.textMute }}>{formatTs(msg.ts)}</span>
+          {msg.provider && (
+            <>
+              <span style={{ fontSize: 10, color: C.textMute }}>·</span>
+              <ProviderBadge provider={msg.provider} label={msg.providerLabel} />
+            </>
+          )}
         </div>
         <div
           style={{
@@ -592,6 +666,8 @@ export function ChatSession({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [streamingProvider, setStreamingProvider] = useState<"local" | "cloud" | null>(null);
+  const [streamingProviderLabel, setStreamingProviderLabel] = useState<string | undefined>(undefined);
   const [loadingArtifacts, setLoadingArtifacts] = useState(false);
   const [challenger, setChallenger] = useState(initialChallenger);
   const [error, setError] = useState<string | null>(null);
@@ -707,18 +783,25 @@ export function ChatSession({
             title?: string;
             artifacts?: ChatMessage["artifacts"];
             error?: string;
+            provider?: "local" | "cloud";
+            providerLabel?: string;
           };
           try {
             evt = JSON.parse(trimmedLine);
           } catch {
             continue;
           }
-          if (evt.t === "chunk" && typeof evt.c === "string") {
+          if (evt.t === "provider" && evt.provider) {
+            setStreamingProvider(evt.provider);
+            setStreamingProviderLabel(evt.providerLabel);
+          } else if (evt.t === "chunk" && typeof evt.c === "string") {
             setStreamingContent((s) => s + evt.c);
           } else if (evt.t === "text-done" && evt.assistant) {
             const assistant = evt.assistant;
             setMessages((p) => [...p, assistant]);
             setStreamingContent("");
+            setStreamingProvider(null);
+            setStreamingProviderLabel(undefined);
             if (assistant.deliverables?.length) setLoadingArtifacts(true);
             if (evt.title && onTitleChange) onTitleChange(evt.title);
           } else if (evt.t === "artifacts" && evt.artifacts) {
@@ -739,6 +822,8 @@ export function ChatSession({
               rolledBack = true;
             }
             setStreamingContent("");
+            setStreamingProvider(null);
+            setStreamingProviderLabel(undefined);
             setLoadingArtifacts(false);
           }
         }
@@ -747,6 +832,8 @@ export function ChatSession({
       setError(e instanceof Error ? e.message : "Erreur réseau.");
       setMessages((p) => p.slice(0, -1));
       setStreamingContent("");
+      setStreamingProvider(null);
+      setStreamingProviderLabel(undefined);
     } finally {
       setLoading(false);
     }
@@ -898,6 +985,15 @@ export function ChatSession({
             taskedItems={taskedItems}
           />
         ))}
+        {streamingProvider === "cloud" && (
+          <div style={{ paddingLeft: 38 }}>
+            <ProviderBadge
+              provider="cloud"
+              label={streamingProviderLabel}
+              variant="announce"
+            />
+          </div>
+        )}
         {streamingContent && (
           <MessageBubble
             msg={{
@@ -907,6 +1003,8 @@ export function ChatSession({
               // elle sera rendue proprement au `text-done`.
               content: streamingContent.split(/\n\s*(?:LIVRABLES|CHALLENGES)\s*:/i)[0],
               ts: new Date().toISOString(),
+              provider: streamingProvider ?? undefined,
+              providerLabel: streamingProviderLabel,
             }}
             agentId={agentId}
             onConvertToTask={convertToTask}
