@@ -6,6 +6,7 @@ import {
   type AgentId,
   type Artifact,
   type ChatMessage,
+  type ProjectType,
 } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
@@ -21,7 +22,7 @@ interface OllamaMessage {
   content: string;
 }
 
-// Parse une réponse Llama au format texte avec sections marquées.
+// Parse une réponse Mistral au format texte avec sections marquées.
 // Retourne { content, deliverables, challenges } — robuste : si rien ne matche
 // on renvoie le texte brut comme content.
 function parseAgentReply(raw: string): {
@@ -90,7 +91,7 @@ export async function POST(req: Request) {
 
   const { data: session, error: sessErr } = await supabase
     .from("sessions")
-    .select("id, agent_id, challenger_mode, messages, title")
+    .select("id, agent_id, project_type, challenger_mode, messages, title")
     .eq("id", sessionId)
     .eq("user_id", user.id)
     .single();
@@ -134,7 +135,18 @@ export async function POST(req: Request) {
     }
   }
 
-  const systemPrompt = buildSystemPrompt(agent.id, session.challenger_mode) + previousContext;
+  const fullName =
+    typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "";
+  const firstName = fullName.trim().split(/\s+/)[0] || "";
+  const isFirstReply = history.length === 0;
+
+  const systemPrompt =
+    buildSystemPrompt(
+      agent.id,
+      session.challenger_mode,
+      session.project_type as ProjectType,
+      isFirstReply && firstName ? firstName : undefined,
+    ) + previousContext;
 
   const ollamaMessages: OllamaMessage[] = [
     { role: "system", content: systemPrompt },
@@ -240,7 +252,7 @@ export async function POST(req: Request) {
 
       send({ t: "text-done", assistant: assistantMsg, title: newTitle });
 
-      // 2e passe : si Llama3 a annoncé des livrables, on demande à Qwen2.5-Coder
+      // 2e passe : si Mistral a annoncé des livrables, on demande à Qwen2.5-Coder
       // (meilleur en sortie structurée) de les matérialiser en artefacts JSON.
       // Échec silencieux : si Qwen n'est pas dispo ou répond mal, on garde juste
       // les titres bruts dans `deliverables`.

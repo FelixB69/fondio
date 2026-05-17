@@ -66,7 +66,7 @@ function AuthBrand() {
           en local (100% confidentiel).
         </h2>
         <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.6)", lineHeight: 1.6 }}>
-          Stratégie, finance, lancement, reconversion. Sessions structurées avec livrables et mode challenger. Tourne sur Llama3 & Qwen2.5-Coder, tout en restant sur nos serveurs. 
+          Stratégie, finance, lancement, reconversion. Sessions structurées avec livrables et mode challenger. Tourne sur Mistral & Qwen2.5-Coder, tout en restant sur nos serveurs. 
         </p>
       </div>
 

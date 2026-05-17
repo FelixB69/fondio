@@ -7,6 +7,7 @@ import {
   type AgentId,
   type Artifact,
   type ChatMessage,
+  type ProjectType,
 } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
@@ -177,7 +178,7 @@ export async function POST(req: Request) {
 
   const { data: session, error: sessErr } = await supabase
     .from("sessions")
-    .select("id, agent_id, messages, title")
+    .select("id, agent_id, project_type, messages, title")
     .eq("id", sessionId)
     .eq("user_id", user.id)
     .single();
@@ -251,7 +252,21 @@ export async function POST(req: Request) {
     title = title ?? userMessage.trim().slice(0, 60) + (userMessage.trim().length > 60 ? "…" : "");
   }
 
-  const systemPrompt = buildPanelAgentPrompt(agentId, agentIds, previousReplies ?? []);
+  const fullName =
+    typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "";
+  const firstName = fullName.trim().split(/\s+/)[0] || "";
+  // Saluer uniquement sur le tout premier message de la session, et seulement
+  // par le premier agent du panel (step 0 sans réponses précédentes).
+  const isFirstReply =
+    history.length === 0 && step === 0 && (previousReplies?.length ?? 0) === 0;
+
+  const systemPrompt = buildPanelAgentPrompt(
+    agentId,
+    agentIds,
+    previousReplies ?? [],
+    session.project_type as ProjectType,
+    isFirstReply && firstName ? firstName : undefined,
+  );
 
   // On n'inclut que les messages user dans l'historique Ollama (les réponses
   // des autres agents panel sont injectées via le system prompt).

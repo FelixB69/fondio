@@ -104,7 +104,7 @@ export interface Task {
 // ---------------------------------------------------------------------
 // System prompts
 //
-// On n'attend PAS de JSON strict de Llama3 (peu fiable). On demande un format
+// On n'attend PAS de JSON strict de Mistral (peu fiable). On demande un format
 // texte avec sections marquées que le serveur parse en regex :
 //
 //   <réponse principale>
@@ -119,6 +119,16 @@ export interface Task {
 // Si rien ne matche, le texte brut devient `content` (fallback gracieux).
 // ---------------------------------------------------------------------
 
+const GROUNDING_INSTRUCTIONS = `
+Règles absolues (anti-fabrication) :
+- N'INVENTE JAMAIS d'informations que l'utilisateur n'a pas données : ni secteur, ni objectif, ni contexte, ni contrainte.
+- Si une information cruciale manque (secteur visé, ville, budget, niveau, échéance, contexte perso), POSE LA QUESTION au lieu de supposer.
+- Ne reformule pas en ajoutant des détails non dits. "Je cherche un job de dev" ≠ "tu veux un job de dev dans l'IA". Reste strictement sur ce qui a été dit.
+- Au PREMIER échange, si le message est court ou vague : commence par 2 à 4 questions ciblées avant tout conseil. N'enchaîne PAS sur un plan d'action immédiat.
+- N'utilise un framework ou un plan en étapes que si tu as assez de matière. Sinon, demande d'abord.
+- Si tu fais une hypothèse, marque-la clairement : "Hypothèse :" et demande confirmation.
+`.trim();
+
 const FORMAT_INSTRUCTIONS = `
 Format de réponse OBLIGATOIRE :
 1. Commence par ta réponse principale en texte clair (2 à 5 paragraphes max).
@@ -129,7 +139,8 @@ LIVRABLES:
 - deuxième livrable
 
 3. N'écris JAMAIS la section LIVRABLES si tu n'as rien de concret à livrer ce tour-ci.
-4. Pas de JSON, pas de markdown lourd, pas d'emojis dans la réponse.
+4. En particulier : si tu poses encore des questions de cadrage, PAS de LIVRABLES.
+5. Pas de JSON, pas de markdown lourd, pas d'emojis dans la réponse.
 `.trim();
 
 const CHALLENGER_INSTRUCTIONS = `
@@ -142,6 +153,32 @@ CHALLENGES:
 Sois exigeant, pointe les zones de flou, ne flatte pas.
 `.trim();
 
+const PROJECT_TYPE_INSTRUCTIONS: Record<ProjectType, string> = {
+  perso: `
+Contexte : PROJET PERSONNEL (side project, reconversion, objectif de vie, projet créatif, freelance solo).
+Adapte LIVRABLES et discours :
+- Tonalité chaleureuse, directe, à hauteur d'individu — pas de jargon corporate.
+- Livrables typiques : plan d'action en micro-étapes, rituels hebdo, premières actions de la semaine, listes de blocages perso, prochaine micro-victoire.
+- Évite le formalisme inutile (pas de SMART, pas d'OKR, pas de KPI complexes) — privilégie des engagements concrets et tenables.
+- Évite aussi : parties prenantes, gouvernance, P&L détaillé. Ce n'est pas le contexte.
+- Tiens compte du fait que la personne porte ce projet seule ou à 2-3 max, souvent en parallèle d'autre chose.
+`.trim(),
+  pro: `
+Contexte : PROJET PROFESSIONNEL (entreprise, startup, lancement produit, stratégie, levée de fonds).
+Adapte LIVRABLES et discours :
+- Tonalité business, analytique, structurée.
+- Pour cadrer un but, formule des objectifs SMART (Spécifique, Mesurable, Atteignable, Réaliste, Temporel).
+- Mobilise les frameworks adaptés (BMC, Porter, SWOT, unit economics, OKR, roadmap produit).
+- Livrables typiques : matrices de décision, plans structurés, KPIs mesurables, scénarios chiffrés, analyses de risques.
+- Quantifie quand c'est possible (ordres de grandeur, hypothèses chiffrées).
+- Pense équipe, parties prenantes, contraintes opérationnelles et financières.
+`.trim(),
+};
+
+function buildGreetingInstruction(firstName: string): string {
+  return `IMPORTANT — Tu réponds pour la PREMIÈRE FOIS à cet utilisateur dans cette conversation. Commence ta réponse par exactement "Salut ${firstName}" (sans virgule supplémentaire), puis enchaîne naturellement. Ne fais ça que cette fois — pas dans les réponses suivantes.`;
+}
+
 function buildPrompt(firstName: string, role: string, style: string, deliverables: string): string {
   return `Tu t'appelles ${firstName}. ${role}
 
@@ -150,6 +187,8 @@ Style : ${style}
 Type de livrables que tu produis : ${deliverables}
 
 Réponds toujours en français.
+
+${GROUNDING_INSTRUCTIONS}
 
 ${FORMAT_INSTRUCTIONS}`;
 }
@@ -319,9 +358,19 @@ export const PROJECT_TYPES: Record<
   },
 };
 
-export function buildSystemPrompt(agentId: AgentId, challenger: boolean): string {
-  const base = AGENTS[agentId].systemPrompt;
-  return challenger ? `${base}\n\n${CHALLENGER_INSTRUCTIONS}` : base;
+export function buildSystemPrompt(
+  agentId: AgentId,
+  challenger: boolean,
+  projectType: ProjectType,
+  greetingFirstName?: string,
+): string {
+  const parts: string[] = [
+    AGENTS[agentId].systemPrompt,
+    PROJECT_TYPE_INSTRUCTIONS[projectType],
+  ];
+  if (challenger) parts.push(CHALLENGER_INSTRUCTIONS);
+  if (greetingFirstName) parts.push(buildGreetingInstruction(greetingFirstName));
+  return parts.join("\n\n");
 }
 
 // -------------------------------------------------------------------------
@@ -349,6 +398,8 @@ export function buildPanelAgentPrompt(
   agentId: AgentId,
   allAgentIds: AgentId[],
   previousReplies: Array<{ agentId: AgentId; content: string }>,
+  projectType: ProjectType,
+  greetingFirstName?: string,
 ): string {
   const agent = AGENTS[agentId];
   const others = allAgentIds
@@ -357,16 +408,18 @@ export function buildPanelAgentPrompt(
     .join(", ");
 
   const panelCtx = `Tu participes à un panel d'experts conseillant la même personne. Les autres experts du panel s'appellent : ${others}.`;
+  const projectCtx = PROJECT_TYPE_INSTRUCTIONS[projectType];
+  const greeting = greetingFirstName ? `\n\n${buildGreetingInstruction(greetingFirstName)}` : "";
 
   if (previousReplies.length === 0) {
-    return `${agent.systemPrompt}\n\n${panelCtx}\nTu es le premier à répondre — donne TON angle d'expert en quelques phrases percutantes.\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\n${FORMAT_INSTRUCTIONS}`;
+    return `${agent.systemPrompt}\n\n${projectCtx}\n\n${panelCtx}\nTu es le premier à répondre — donne TON angle d'expert en quelques phrases percutantes.\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\n${FORMAT_INSTRUCTIONS}${greeting}`;
   }
 
   const previousCtx = previousReplies
     .map((r) => `--- ${AGENTS[r.agentId].name} ---\n${r.content.slice(0, 400)}`)
     .join("\n\n");
 
-  return `${agent.systemPrompt}\n\n${panelCtx}\n\n${PANEL_DEBATE_INSTRUCTIONS}\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\nRéponses des autres experts :\n\n${previousCtx}\n\n${FORMAT_INSTRUCTIONS}`;
+  return `${agent.systemPrompt}\n\n${projectCtx}\n\n${panelCtx}\n\n${PANEL_DEBATE_INSTRUCTIONS}\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\nRéponses des autres experts :\n\n${previousCtx}\n\n${FORMAT_INSTRUCTIONS}${greeting}`;
 }
 
 export function buildSynthesisSystemPrompt(): string {
