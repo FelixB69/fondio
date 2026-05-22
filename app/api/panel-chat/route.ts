@@ -22,6 +22,7 @@ interface AgentStepRequest {
   previousReplies: Array<{ agentId: AgentId; content: string }>;
   userMessage?: string; // requis pour step 0
   isSynthesis?: false;
+  preferredProvider?: "local" | "cloud";
 }
 
 interface SynthesisRequest {
@@ -30,6 +31,7 @@ interface SynthesisRequest {
   isSynthesis: true;
   userMessage: string;
   allReplies: Array<{ agentId: AgentId; content: string }>;
+  preferredProvider?: "local" | "cloud";
 }
 
 type PanelChatRequest = AgentStepRequest | SynthesisRequest;
@@ -38,8 +40,9 @@ async function generateArtifacts(args: {
   conversation: ChatMessage[];
   assistantReply: string;
   deliverableTitles: string[];
+  forceProvider?: "local" | "cloud";
 }): Promise<Artifact[]> {
-  const { conversation, assistantReply, deliverableTitles } = args;
+  const { conversation, assistantReply, deliverableTitles, forceProvider } = args;
 
   const recent = conversation.slice(-6);
   const transcript = recent
@@ -54,7 +57,7 @@ async function generateArtifacts(args: {
         { role: "system", content: ARTIFACTS_FORMAT_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      { jsonMode: true, useArtifactModel: true },
+      { jsonMode: true, useArtifactModel: true, forceProvider },
     );
     const parsed = JSON.parse(raw) as { artifacts?: unknown };
     if (!Array.isArray(parsed.artifacts)) return [];
@@ -120,7 +123,7 @@ export async function POST(req: Request) {
 
   // ── Étape de synthèse ────────────────────────────────────────────────────
   if (body.isSynthesis) {
-    const { allReplies, userMessage } = body;
+    const { allReplies, userMessage, preferredProvider } = body;
 
     const repliesText = allReplies
       .map((r) => `--- ${AGENTS[r.agentId].name} ---\n${r.content}`)
@@ -138,7 +141,7 @@ export async function POST(req: Request) {
     let provider: "local" | "cloud";
     let providerLabel: string;
     try {
-      const result = await callChatModel(llmMessages);
+      const result = await callChatModel(llmMessages, { forceProvider: preferredProvider });
       raw = result.data;
       provider = result.provider;
       providerLabel = result.providerLabel;
@@ -167,7 +170,7 @@ export async function POST(req: Request) {
   }
 
   // ── Étape d'un agent ─────────────────────────────────────────────────────
-  const { step, previousReplies, userMessage } = body as AgentStepRequest;
+  const { step, previousReplies, userMessage, preferredProvider } = body as AgentStepRequest;
   const agentId = agentIds[step];
   if (!agentId || !AGENTS[agentId]) {
     return NextResponse.json({ error: `Agent inconnu à l'étape ${step}.` }, { status: 400 });
@@ -215,7 +218,7 @@ export async function POST(req: Request) {
   let provider: "local" | "cloud";
   let providerLabel: string;
   try {
-    const result = await callChatModel(llmMessages);
+    const result = await callChatModel(llmMessages, { forceProvider: preferredProvider });
     raw = result.data;
     provider = result.provider;
     providerLabel = result.providerLabel;
@@ -241,6 +244,7 @@ export async function POST(req: Request) {
       conversation: updatedHistory,
       assistantReply: parsed.content,
       deliverableTitles: parsed.deliverables,
+      forceProvider: preferredProvider,
     });
     if (artifacts.length) agentMsg.artifacts = artifacts;
   }

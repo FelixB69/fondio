@@ -22,10 +22,11 @@ export const runtime = "nodejs";
 interface ChatRequest {
   sessionId: string;
   userMessage: string;
+  preferredProvider?: "local" | "cloud";
 }
 
 export async function POST(req: Request) {
-  const { sessionId, userMessage } = (await req.json()) as ChatRequest;
+  const { sessionId, userMessage, preferredProvider } = (await req.json()) as ChatRequest;
 
   if (!sessionId || !userMessage?.trim()) {
     return NextResponse.json({ error: "sessionId et userMessage requis." }, { status: 400 });
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
 
   let streamResult: Awaited<ReturnType<typeof callChatModelStream>>;
   try {
-    streamResult = await callChatModelStream(llmMessages);
+    streamResult = await callChatModelStream(llmMessages, { forceProvider: preferredProvider });
   } catch (e: unknown) {
     return NextResponse.json({ error: describeLLMError(e) }, { status: 503 });
   }
@@ -170,6 +171,7 @@ export async function POST(req: Request) {
           conversation: updatedHistory,
           assistantReply: parsed.content,
           deliverableTitles: parsed.deliverables,
+          forceProvider: preferredProvider,
         });
         if (artifacts.length) {
           assistantMsg.artifacts = artifacts;
@@ -206,8 +208,9 @@ async function generateArtifacts(args: {
   conversation: ChatMessage[];
   assistantReply: string;
   deliverableTitles: string[];
+  forceProvider?: "local" | "cloud";
 }): Promise<Artifact[]> {
-  const { conversation, assistantReply, deliverableTitles } = args;
+  const { conversation, assistantReply, deliverableTitles, forceProvider } = args;
 
   // On ne renvoie que les ~6 derniers tours pour limiter le contexte.
   const recent = conversation.slice(-6);
@@ -234,7 +237,7 @@ Produis le contenu complet de chaque livrable au format JSON décrit.`;
         { role: "system", content: ARTIFACTS_FORMAT_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      { jsonMode: true, useArtifactModel: true },
+      { jsonMode: true, useArtifactModel: true, forceProvider },
     );
     const parsed = JSON.parse(raw) as { artifacts?: unknown };
     if (!Array.isArray(parsed.artifacts)) return [];

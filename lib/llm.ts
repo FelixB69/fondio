@@ -18,6 +18,7 @@ export interface LLMMessage {
 export interface CallOptions {
   jsonMode?: boolean;
   useArtifactModel?: boolean;
+  forceProvider?: "local" | "cloud";
 }
 
 export type LLMProvider = "local" | "cloud";
@@ -63,11 +64,16 @@ export async function callChatModel(
   messages: LLMMessage[],
   opts?: CallOptions,
 ): Promise<LLMResult<string>> {
+  if (opts?.forceProvider === "cloud") {
+    const data = await callMistralJson(messages, opts);
+    return { provider: "cloud", providerLabel: cloudLabel(opts), data };
+  }
   try {
     const data = await callOllamaJson(messages, opts);
     return { provider: "local", providerLabel: localLabel(opts), data };
   } catch (e) {
     if (!isOllamaUnavailable(e)) throw e;
+    if (opts?.forceProvider === "local") throw new Error("OLLAMA_LOCAL_FORCED_UNAVAILABLE");
     const data = await callMistralJson(messages, opts);
     return { provider: "cloud", providerLabel: cloudLabel(opts), data };
   }
@@ -132,7 +138,12 @@ async function callMistralJson(messages: LLMMessage[], opts?: CallOptions): Prom
 // Retourne un async iterable de chunks de texte + le provider utilisé.
 export async function callChatModelStream(
   messages: LLMMessage[],
+  opts?: Pick<CallOptions, "forceProvider">,
 ): Promise<LLMResult<AsyncIterable<string>>> {
+  if (opts?.forceProvider === "cloud") {
+    const data = await callMistralStream(messages);
+    return { provider: "cloud", providerLabel: cloudLabel(), data };
+  }
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: "POST",
@@ -151,6 +162,7 @@ export async function callChatModelStream(
     };
   } catch (e) {
     if (!isOllamaUnavailable(e)) throw e;
+    if (opts?.forceProvider === "local") throw new Error("OLLAMA_LOCAL_FORCED_UNAVAILABLE");
     const data = await callMistralStream(messages);
     return { provider: "cloud", providerLabel: cloudLabel(), data };
   }
@@ -238,8 +250,11 @@ async function* mistralStreamToText(
 // Helper pour formater le message d'erreur côté UI.
 export function describeLLMError(e: unknown): string {
   const msg = e instanceof Error ? e.message : "Erreur inconnue";
+  if (msg === "OLLAMA_LOCAL_FORCED_UNAVAILABLE") {
+    return `OLLAMA_UNAVAILABLE: Ollama n'est pas accessible sur ${OLLAMA_BASE_URL}. Lance \`ollama serve\` ou bascule sur Cloud.`;
+  }
   if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
-    return `Ollama n'est pas démarré sur ${OLLAMA_BASE_URL}, et le fallback Mistral n'est pas configuré (MISTRAL_API_KEY).`;
+    return `Ollama n'est pas démarré sur ${OLLAMA_BASE_URL}. Lance \`ollama serve\` ou bascule sur Cloud.`;
   }
   return msg;
 }

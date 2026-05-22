@@ -672,14 +672,29 @@ export function ChatSession({
   const [challenger, setChallenger] = useState(initialChallenger);
   const [error, setError] = useState<string | null>(null);
   const [taskedItems, setTaskedItems] = useState<Set<string>>(new Set());
+  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
+  const [preferredProvider, setPreferredProvider] = useState<"local" | "cloud">("cloud");
 
   const messagesRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const inputHistoryRef = useRef<string[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const savedDraftRef = useRef<string>("");
 
   useEffect(() => {
     setMessages(initialMessages);
     setChallenger(initialChallenger);
   }, [sessionId, initialMessages, initialChallenger]);
+
+  useEffect(() => {
+    fetch("/api/ollama-status")
+      .then((r) => r.json())
+      .then((data: { available: boolean }) => {
+        setOllamaAvailable(data.available);
+        if (data.available) setPreferredProvider("local");
+      })
+      .catch(() => setOllamaAvailable(false));
+  }, []);
 
   // Pré-remplit le badge "déjà tâche" avec les livrables qui sont déjà des tasks
   // pour cette session — comme ça on ne peut pas créer de doublons.
@@ -739,6 +754,9 @@ export function ChatSession({
     setInput("");
     setError(null);
     if (taRef.current) taRef.current.style.height = "auto";
+    inputHistoryRef.current = [trimmed, ...inputHistoryRef.current.filter((m) => m !== trimmed)].slice(0, 50);
+    historyIndexRef.current = -1;
+    savedDraftRef.current = "";
 
     const userMsg: ChatMessage = {
       role: "user",
@@ -753,11 +771,20 @@ export function ChatSession({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, userMessage: trimmed }),
+        body: JSON.stringify({ sessionId, userMessage: trimmed, preferredProvider }),
       });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({ error: "Erreur réseau." }));
-        setError(data.error ?? "Erreur inconnue.");
+        const errMsg: string = data.error ?? "Erreur inconnue.";
+        if (errMsg.startsWith("OLLAMA_UNAVAILABLE:")) {
+          setOllamaAvailable(false);
+          setPreferredProvider("cloud");
+          setInput(trimmed);
+          if (taRef.current) taRef.current.style.height = "auto";
+          setError("Ollama indisponible — bascule sur Cloud. Réessaie avec Entrée.");
+        } else {
+          setError(errMsg);
+        }
         setMessages((p) => p.slice(0, -1));
         return;
       }
@@ -837,7 +864,7 @@ export function ChatSession({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, sessionId, onTitleChange]);
+  }, [input, loading, sessionId, onTitleChange, preferredProvider]);
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: C.bg }}>
@@ -945,6 +972,138 @@ export function ChatSession({
             </>
           )}
         </button>
+
+        {/* Toggle local / cloud */}
+        {!isMobile && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              border: `1.5px solid ${C.border}`,
+              borderRadius: 100,
+              overflow: "hidden",
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "inherit",
+            }}
+          >
+            {/* Bouton Local */}
+            <button
+              onClick={() => {
+                if (ollamaAvailable === false) {
+                  // Re-check Ollama puis bascule si disponible
+                  fetch("/api/ollama-status")
+                    .then((r) => r.json())
+                    .then((data: { available: boolean }) => {
+                      setOllamaAvailable(data.available);
+                      if (data.available) setPreferredProvider("local");
+                    })
+                    .catch(() => setOllamaAvailable(false));
+                } else if (ollamaAvailable === true) {
+                  setPreferredProvider("local");
+                }
+              }}
+              title={
+                ollamaAvailable === null
+                  ? "Vérification d'Ollama…"
+                  : ollamaAvailable
+                  ? "Utiliser le modèle local (données privées)"
+                  : "Ollama indisponible — cliquer pour re-vérifier"
+              }
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "5px 11px",
+                border: "none",
+                borderRight: `1.5px solid ${C.border}`,
+                background:
+                  preferredProvider === "local" && ollamaAvailable
+                    ? "#F0FDF4"
+                    : "transparent",
+                color:
+                  ollamaAvailable === false
+                    ? C.textSub
+                    : preferredProvider === "local"
+                    ? "#16A34A"
+                    : C.textSub,
+                cursor: ollamaAvailable === null ? "default" : "pointer",
+                transition: "all 0.15s",
+                opacity: ollamaAvailable === false ? 0.5 : 1,
+                fontWeight: 700,
+                fontFamily: "inherit",
+                fontSize: 12,
+              }}
+            >
+              <span style={{ fontSize: 8, lineHeight: 1 }}>●</span>
+              Local
+              {ollamaAvailable === false && (
+                <span style={{ fontSize: 10, lineHeight: 1 }} title="Re-vérifier">↻</span>
+              )}
+              {ollamaAvailable === null && (
+                <span style={{ fontSize: 10, color: C.textSub }}>…</span>
+              )}
+            </button>
+
+            {/* Bouton Cloud */}
+            <button
+              onClick={() => setPreferredProvider("cloud")}
+              title="Utiliser Mistral Cloud"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "5px 11px",
+                border: "none",
+                background: preferredProvider === "cloud" ? "#EEF2FF" : "transparent",
+                color: preferredProvider === "cloud" ? "#6366F1" : C.textSub,
+                cursor: "pointer",
+                transition: "all 0.15s",
+                fontWeight: 700,
+                fontFamily: "inherit",
+                fontSize: 12,
+              }}
+            >
+              <span style={{ fontSize: 12, lineHeight: 1 }}>☁</span>
+              Cloud
+            </button>
+          </div>
+        )}
+
+        {/* Version mobile : icône seule */}
+        {isMobile && (
+          <button
+            onClick={() => {
+              if (preferredProvider === "cloud" && ollamaAvailable) {
+                setPreferredProvider("local");
+              } else if (preferredProvider === "local") {
+                setPreferredProvider("cloud");
+              } else {
+                fetch("/api/ollama-status")
+                  .then((r) => r.json())
+                  .then((d: { available: boolean }) => {
+                    setOllamaAvailable(d.available);
+                    if (d.available) setPreferredProvider("local");
+                  })
+                  .catch(() => setOllamaAvailable(false));
+              }
+            }}
+            title={preferredProvider === "local" ? "Local actif" : "Cloud actif"}
+            style={{
+              background: preferredProvider === "local" ? "#F0FDF4" : "#EEF2FF",
+              border: `1.5px solid ${preferredProvider === "local" ? "#16A34A" : "#6366F1"}`,
+              color: preferredProvider === "local" ? "#16A34A" : "#6366F1",
+              borderRadius: 100,
+              padding: "6px 8px",
+              cursor: "pointer",
+              fontSize: 14,
+              fontFamily: "inherit",
+              opacity: ollamaAvailable === false && preferredProvider === "local" ? 0.5 : 1,
+            }}
+          >
+            {ollamaAvailable === null ? "…" : preferredProvider === "local" ? "●" : "☁"}
+          </button>
+        )}
       </div>
 
       {/* Messages */}
@@ -1090,6 +1249,37 @@ export function ChatSession({
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
+              } else if (e.key === "ArrowUp" && !e.shiftKey) {
+                const history = inputHistoryRef.current;
+                if (!history.length) return;
+                if (historyIndexRef.current === -1) savedDraftRef.current = input;
+                const next = Math.min(historyIndexRef.current + 1, history.length - 1);
+                historyIndexRef.current = next;
+                const val = history[next];
+                setInput(val);
+                e.preventDefault();
+                requestAnimationFrame(() => {
+                  if (taRef.current) {
+                    taRef.current.style.height = "auto";
+                    taRef.current.style.height = Math.min(taRef.current.scrollHeight, 120) + "px";
+                    taRef.current.setSelectionRange(val.length, val.length);
+                  }
+                });
+              } else if (e.key === "ArrowDown" && !e.shiftKey) {
+                const history = inputHistoryRef.current;
+                if (historyIndexRef.current === -1) return;
+                const next = historyIndexRef.current - 1;
+                historyIndexRef.current = next;
+                const val = next === -1 ? savedDraftRef.current : history[next];
+                setInput(val);
+                e.preventDefault();
+                requestAnimationFrame(() => {
+                  if (taRef.current) {
+                    taRef.current.style.height = "auto";
+                    taRef.current.style.height = Math.min(taRef.current.scrollHeight, 120) + "px";
+                    taRef.current.setSelectionRange(val.length, val.length);
+                  }
+                });
               }
             }}
             placeholder={`Pose ta question à ${agent.firstName}…`}
