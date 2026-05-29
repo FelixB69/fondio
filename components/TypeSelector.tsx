@@ -47,8 +47,7 @@ export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => vo
             Sur quoi tu veux qu'on bosse ?
           </h1>
           <p style={{ margin: 0, color: C.textSub, fontSize: 14.5, lineHeight: 1.55 }}>
-            Choisis le contexte de ton projet — ça conditionne les agents disponibles.
-          </p>
+Choisis le contexte de ton projet pour te proposer les meilleurs agents disponibles.          </p>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
