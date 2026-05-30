@@ -53,6 +53,9 @@ export interface ChatMessage {
   // Indique quel provider LLM a généré la réponse (Ollama local vs API cloud).
   provider?: "local" | "cloud";
   providerLabel?: string;
+  // Sources web consultées pour cette réponse (recherche Tavily). L'ordre
+  // correspond aux citations [1], [2]... que l'agent écrit dans son texte.
+  sources?: { title: string; url: string }[];
 }
 
 export type Artifact =
@@ -140,6 +143,8 @@ Format de réponse OBLIGATOIRE :
 LIVRABLES:
 - premier livrable
 - deuxième livrable
+
+Maximum 3 livrables par tour, formulés en 5 à 10 mots chacun.
 
 3. N'écris JAMAIS la section LIVRABLES si tu n'as rien de concret à livrer ce tour-ci.
 4. En particulier : si tu poses encore des questions de cadrage, PAS de LIVRABLES.

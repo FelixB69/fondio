@@ -444,6 +444,47 @@ function TypingDots({ agentId }: { agentId: AgentId }) {
   );
 }
 
+// Indicateur de la phase "recherche web", affiché AVANT le 1er token de réponse.
+// Cette étape bloque forcément la génération (le modèle attend les résultats web
+// pour les intégrer au prompt) : on l'explique clairement pour que l'attente plus
+// longue soit comprise plutôt que subie. On bascule ensuite sur TypingDots dès que
+// le modèle commence à répondre (événement `provider` reçu).
+function WebSearchingIndicator({ agentId }: { agentId: AgentId }) {
+  const color = AGENTS[agentId].color;
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+      <AgentAvatar agentId={agentId} size={28} />
+      <div
+        style={{
+          background: C.white,
+          border: `1px solid ${C.border}`,
+          borderRadius: "4px 12px 12px 12px",
+          padding: "10px 14px",
+          boxShadow: C.shadow,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+        }}
+      >
+        <Icon
+          name="search"
+          size={15}
+          color={color}
+          style={{ animation: "fndPulse 1.2s ease-in-out infinite", flexShrink: 0 }}
+        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>
+            Recherche web en cours…
+          </span>
+          <span style={{ fontSize: 11, color: C.textMute }}>
+            La réponse sera un peu plus longue, le temps de consulter le web.
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StructuredBlock({
   label,
   icon,
@@ -546,16 +587,78 @@ function StructuredBlock({
   );
 }
 
+// Extrait un nom de site lisible depuis une URL.
+// Ex: "https://www.malt.fr/profil/..." -> "malt.fr"
+function hostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+// Rend le contenu markdown en HTML avec les citations [1][2] remplacées par des liens.
+function renderMarkdownWithCitations(
+  content: string,
+  sources: { title: string; url: string }[] | undefined,
+  color: string,
+): string {
+  let processed = content;
+  if (sources && sources.length > 0) {
+    processed = content.replace(/\[(\d+)\]/g, (match, num) => {
+      const src = sources[parseInt(num, 10) - 1];
+      if (!src) return match;
+      const host = hostname(src.url);
+      return `<a href="${src.url}" target="_blank" rel="noopener noreferrer" title="${src.title}" style="color:${color};font-weight:600;text-decoration:underline;white-space:nowrap">${host}</a>`;
+    });
+  }
+  return marked.parse(processed, { async: false }) as string;
+}
+
+// Bloc "Sources" affiché sous la réponse : liste les pages consultées sous forme
+// de pastilles cliquables (nom du site). Toujours visible dès qu'une recherche a
+// eu lieu, même si l'agent n'a pas écrit [1][2] dans son texte.
+function SourcesBlock({ sources }: { sources?: { title: string; url: string }[] }) {
+  if (!sources || sources.length === 0) return null;
+  return (
+    <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: C.textMute }}>Sources :</span>
+      {sources.map((s, i) => (
+        <a
+          key={i}
+          href={s.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={s.title}
+          style={{
+            fontSize: 11,
+            color: C.navy,
+            background: C.navyLight,
+            borderRadius: 6,
+            padding: "2px 8px",
+            textDecoration: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {i + 1}. {hostname(s.url)}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function MessageBubble({
   msg,
   agentId,
   onConvertToTask,
   taskedItems,
+  pendingArtifacts,
 }: {
   msg: ChatMessage;
   agentId: AgentId;
   onConvertToTask: (text: string) => void;
   taskedItems: Set<string>;
+  pendingArtifacts?: boolean;
 }) {
   if (msg.role === "user") {
     return (
@@ -603,37 +706,36 @@ function MessageBubble({
           }}
         >
           <div
-            style={{
-              fontSize: 13.5,
-              color: C.text,
-              lineHeight: 1.65,
-              whiteSpace: "pre-wrap",
+            className="fnd-md"
+            style={{ fontSize: 13.5, color: C.text, lineHeight: 1.65 }}
+            dangerouslySetInnerHTML={{
+              __html: renderMarkdownWithCitations(msg.content, msg.sources, agent.color),
             }}
-          >
-            {msg.content}
-          </div>
-          {msg.artifacts && msg.artifacts.length > 0
-            ? msg.artifacts.map((a, i) => (
-                <ArtifactBlock
-                  key={i}
-                  artifact={a}
+          />
+          {!pendingArtifacts && (
+            msg.artifacts && msg.artifacts.length > 0
+              ? msg.artifacts.map((a, i) => (
+                  <ArtifactBlock
+                    key={i}
+                    artifact={a}
+                    color={agent.color}
+                    bg={agent.bg}
+                    onConvertToTask={onConvertToTask}
+                    tasked={taskedItems.has(a.title)}
+                  />
+                ))
+              : (
+                <StructuredBlock
+                  label="Livrables"
+                  icon="tasks"
+                  items={msg.deliverables ?? []}
                   color={agent.color}
                   bg={agent.bg}
                   onConvertToTask={onConvertToTask}
-                  tasked={taskedItems.has(a.title)}
+                  taskedItems={taskedItems}
                 />
-              ))
-            : (
-              <StructuredBlock
-                label="Livrables"
-                icon="tasks"
-                items={msg.deliverables ?? []}
-                color={agent.color}
-                bg={agent.bg}
-                onConvertToTask={onConvertToTask}
-                taskedItems={taskedItems}
-              />
-            )}
+              )
+          )}
           <StructuredBlock
             label="⚡ Questions difficiles"
             icon="zap"
@@ -641,6 +743,7 @@ function MessageBubble({
             color="#D97706"
             bg="#FFFBEB"
           />
+          <SourcesBlock sources={msg.sources} />
         </div>
       </div>
     </div>
@@ -670,6 +773,9 @@ export function ChatSession({
   const [streamingProviderLabel, setStreamingProviderLabel] = useState<string | undefined>(undefined);
   const [loadingArtifacts, setLoadingArtifacts] = useState(false);
   const [challenger, setChallenger] = useState(initialChallenger);
+  // Recherche web : OFF par défaut. Sinon chaque message paie une étape de
+  // recherche avant de répondre (lent). État local, non persisté en base.
+  const [webSearch, setWebSearch] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taskedItems, setTaskedItems] = useState<Set<string>>(new Set());
   const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
@@ -771,7 +877,7 @@ export function ChatSession({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, userMessage: trimmed, preferredProvider }),
+        body: JSON.stringify({ sessionId, userMessage: trimmed, preferredProvider, webSearch }),
       });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({ error: "Erreur réseau." }));
@@ -864,7 +970,7 @@ export function ChatSession({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, sessionId, onTitleChange, preferredProvider]);
+  }, [input, loading, sessionId, onTitleChange, preferredProvider, webSearch]);
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: C.bg }}>
@@ -961,6 +1067,56 @@ export function ChatSession({
                     position: "absolute",
                     top: 2,
                     left: challenger ? 14 : 2,
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: "white",
+                    transition: "left 0.2s",
+                  }}
+                />
+              </span>
+            </>
+          )}
+        </button>
+
+        <button
+          onClick={() => setWebSearch((v) => !v)}
+          title="L'agent cherche sur le web avant de répondre (plus lent)"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: isMobile ? 0 : 7,
+            border: `1.5px solid ${webSearch ? "#0EA5E9" : C.border}`,
+            background: webSearch ? "#E0F2FE" : C.white,
+            color: webSearch ? "#0284C7" : C.textSub,
+            borderRadius: 100,
+            padding: isMobile ? "6px" : "5px 11px 5px 9px",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 700,
+            fontFamily: "inherit",
+            transition: "all 0.15s",
+          }}
+        >
+          <Icon name="search" size={12} color={webSearch ? "#0284C7" : C.textSub} />
+          {!isMobile && (
+            <>
+              Recherche web
+              <span
+                style={{
+                  width: 26,
+                  height: 14,
+                  borderRadius: 100,
+                  background: webSearch ? "#0EA5E9" : C.border,
+                  position: "relative",
+                  transition: "background 0.2s",
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    left: webSearch ? 14 : 2,
                     width: 10,
                     height: 10,
                     borderRadius: "50%",
@@ -1142,6 +1298,7 @@ export function ChatSession({
             agentId={agentId}
             onConvertToTask={convertToTask}
             taskedItems={taskedItems}
+            pendingArtifacts={loadingArtifacts && i === messages.length - 1 && m.role === "assistant"}
           />
         ))}
         {streamingProvider === "cloud" && (
@@ -1170,7 +1327,17 @@ export function ChatSession({
             taskedItems={taskedItems}
           />
         )}
-        {loading && !streamingContent && !loadingArtifacts && <TypingDots agentId={agentId} />}
+        {loading &&
+          !streamingContent &&
+          !loadingArtifacts &&
+          // Tant que le modèle n'a pas commencé à répondre (`provider` pas encore
+          // reçu) ET que la recherche web est active, on est dans l'étape de
+          // recherche : on l'annonce. Sinon, points de saisie classiques.
+          (webSearch && !streamingProvider ? (
+            <WebSearchingIndicator agentId={agentId} />
+          ) : (
+            <TypingDots agentId={agentId} />
+          ))}
         {loadingArtifacts && (
           <div style={{ display: "flex", gap: 10, alignItems: "center", paddingLeft: 38 }}>
             <div
@@ -1211,6 +1378,28 @@ export function ChatSession({
           }}
         >
           {error}
+        </div>
+      )}
+
+      {/* Rappel proactif : tant que la recherche web est active, on prévient que
+          les réponses seront plus lentes — l'utilisateur le sait AVANT d'envoyer. */}
+      {webSearch && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 20px",
+            background: "#F0F9FF",
+            color: "#0369A1",
+            fontSize: 11.5,
+            fontWeight: 600,
+            borderTop: `1px solid #E0F2FE`,
+          }}
+        >
+          <Icon name="search" size={12} color="#0EA5E9" />
+          Recherche web activée : l'agent consulte le web avant de répondre, les
+          réponses sont donc plus lentes.
         </div>
       )}
 

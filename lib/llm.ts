@@ -4,6 +4,10 @@
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3";
 const OLLAMA_ARTIFACT_MODEL = process.env.OLLAMA_ARTIFACT_MODEL ?? "qwen2.5-coder:7b";
+// Modèle dédié au tool-calling : il DOIT savoir gérer les outils (llama3 ne sait
+// pas ; llama3.1 / qwen2.5 / mistral oui). Séparé du chat principal, comme l'est
+// déjà le modèle d'artefacts.
+const OLLAMA_TOOL_MODEL = process.env.OLLAMA_TOOL_MODEL ?? "llama3.1";
 
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const MISTRAL_BASE_URL = process.env.MISTRAL_BASE_URL ?? "https://api.mistral.ai/v1";
@@ -86,6 +90,10 @@ async function callOllamaJson(messages: LLMMessage[], opts?: CallOptions): Promi
     body: JSON.stringify({
       model: pickOllamaModel(opts),
       stream: false,
+      // Désactive le mode "réflexion" de Qwen3 : sinon il génère un long monologue
+      // interne avant de répondre (lenteur + JSON pollué). Sans effet sur les
+      // modèles qui n'ont pas ce mode (llama3, mistral...).
+      think: false,
       ...(opts?.jsonMode ? { format: "json" } : {}),
       messages,
     }),
@@ -133,6 +141,194 @@ async function callMistralJson(messages: LLMMessage[], opts?: CallOptions): Prom
   return raw;
 }
 
+// ── Tool-calling (appel d'outils) ────────────────────────────────────────────
+//
+// "Tool-calling" = on DÉCRIT au modèle des outils (des fonctions) qu'il peut
+// demander à exécuter. Le modèle ne lance rien lui-même : il répond "j'aimerais
+// appeler web_search avec query=...". C'est NOTRE code qui exécute, puis renvoie
+// le résultat ; le modèle peut alors répondre ou demander un autre outil.
+// Tous les modèles ne savent pas faire ça : on tente d'abord un modèle local
+// compatible (OLLAMA_TOOL_MODEL), puis on bascule sur Mistral Cloud.
+
+// Description d'un outil, au format attendu par l'API (un bout de "JSON Schema").
+export interface ToolDef {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+// Une demande d'outil émise par le modèle.
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: string; // chaîne JSON, ex : '{"query":"..."}'
+}
+
+// Résultat d'un tour : soit du texte (le modèle a fini), soit des demandes d'outils.
+export interface ToolTurnResult {
+  content: string;
+  toolCalls: ToolCall[];
+}
+
+// Un message du fil de tool-calling, en format NORMALISÉ (indépendant du
+// fournisseur). On le traduit ensuite vers le format propre à Ollama ou Mistral.
+export interface ToolLoopMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  toolCalls?: ToolCall[]; // message assistant qui demande des outils
+  toolCallId?: string;    // message "tool" : la demande à laquelle il répond
+  name?: string;          // message "tool" : le nom de l'outil
+}
+
+function safeParseArgs(s: string): Record<string, unknown> {
+  try {
+    const o = JSON.parse(s);
+    return o && typeof o === "object" ? (o as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+// Ollama veut les arguments d'outil en OBJET, et n'utilise pas d'identifiant.
+function toOllamaToolMessages(messages: ToolLoopMessage[]) {
+  return messages.map((m) => {
+    if (m.role === "assistant" && m.toolCalls?.length) {
+      return {
+        role: "assistant",
+        content: m.content,
+        tool_calls: m.toolCalls.map((t) => ({
+          function: { name: t.name, arguments: safeParseArgs(t.arguments) },
+        })),
+      };
+    }
+    if (m.role === "tool") return { role: "tool", content: m.content };
+    return { role: m.role, content: m.content };
+  });
+}
+
+// Mistral (comme OpenAI) veut les arguments en CHAÎNE JSON, et relie demande et
+// réponse d'outil par un identifiant (tool_call_id).
+function toMistralToolMessages(messages: ToolLoopMessage[]) {
+  return messages.map((m) => {
+    if (m.role === "assistant" && m.toolCalls?.length) {
+      return {
+        role: "assistant",
+        content: m.content,
+        tool_calls: m.toolCalls.map((t) => ({
+          id: t.id,
+          type: "function",
+          function: { name: t.name, arguments: t.arguments },
+        })),
+      };
+    }
+    if (m.role === "tool") {
+      return { role: "tool", tool_call_id: m.toolCallId, name: m.name, content: m.content };
+    }
+    return { role: m.role, content: m.content };
+  });
+}
+
+async function callOllamaTools(messages: ToolLoopMessage[], tools: ToolDef[]): Promise<ToolTurnResult> {
+  const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OLLAMA_TOOL_MODEL,
+      messages: toOllamaToolMessages(messages),
+      tools,
+      stream: false,
+      think: false,
+    }),
+  });
+  if (res.status === 404) throw new Error("OLLAMA_404 model not found");
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Ollama tools ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    message?: {
+      content?: string;
+      tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
+    };
+  };
+  const msg = json.message;
+  return {
+    content: msg?.content ?? "",
+    toolCalls: (msg?.tool_calls ?? []).map((t, i) => ({
+      id: `call_${i}`, // Ollama ne fournit pas d'id : on en fabrique un, stable dans ce tour.
+      name: t.function.name,
+      arguments: JSON.stringify(t.function.arguments ?? {}),
+    })),
+  };
+}
+
+async function callMistralTools(messages: ToolLoopMessage[], tools: ToolDef[]): Promise<ToolTurnResult> {
+  if (!MISTRAL_API_KEY) {
+    throw new Error("TOOLS_NO_CLOUD: le tool-calling cloud nécessite MISTRAL_API_KEY.");
+  }
+  const res = await fetch(`${MISTRAL_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${MISTRAL_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: MISTRAL_MODEL,
+      messages: toMistralToolMessages(messages),
+      tools,
+      tool_choice: "auto", // "auto" = le modèle décide d'appeler un outil ou non
+      stream: false,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Mistral tools ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string | null;
+        tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
+      };
+    }>;
+  };
+  const msg = json.choices?.[0]?.message;
+  return {
+    content: msg?.content ?? "",
+    toolCalls: (msg?.tool_calls ?? []).map((t) => ({
+      id: t.id,
+      name: t.function.name,
+      arguments: t.function.arguments,
+    })),
+  };
+}
+
+// Un tour de tool-calling, avec le même réflexe que le reste du fichier : Ollama
+// local d'abord (modèle OLLAMA_TOOL_MODEL), bascule Mistral Cloud sinon.
+export async function callModelWithTools(
+  messages: ToolLoopMessage[],
+  tools: ToolDef[],
+  opts?: { forceProvider?: LLMProvider },
+): Promise<LLMResult<ToolTurnResult>> {
+  if (opts?.forceProvider === "cloud") {
+    const data = await callMistralTools(messages, tools);
+    return { provider: "cloud", providerLabel: `${MISTRAL_MODEL} (cloud)`, data };
+  }
+  try {
+    const data = await callOllamaTools(messages, tools);
+    return { provider: "local", providerLabel: `${OLLAMA_TOOL_MODEL} (local)`, data };
+  } catch (e) {
+    // Si l'utilisateur a forcé "local", on ne triche pas : on remonte l'erreur.
+    if (opts?.forceProvider === "local") throw e;
+    // Sinon (Ollama injoignable, modèle non installé ou incompatible outils) → cloud.
+    const data = await callMistralTools(messages, tools);
+    return { provider: "cloud", providerLabel: `${MISTRAL_MODEL} (cloud)`, data };
+  }
+}
+
 // ── Streaming ───────────────────────────────────────────────────────────────
 
 // Retourne un async iterable de chunks de texte + le provider utilisé.
@@ -148,7 +344,7 @@ export async function callChatModelStream(
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: OLLAMA_MODEL, stream: true, messages }),
+      body: JSON.stringify({ model: OLLAMA_MODEL, stream: true, think: false, messages }),
     });
     if (res.status === 404) throw new Error("OLLAMA_404 model not found");
     if (!res.ok || !res.body) {

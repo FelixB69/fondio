@@ -11,11 +11,15 @@ import {
 import {
   callChatModel,
   callChatModelStream,
+  callModelWithTools,
   describeLLMError,
   type LLMMessage,
+  type ToolDef,
+  type ToolLoopMessage,
 } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
+import { searchWeb, formatWebResultsForPrompt } from "@/lib/web-search";
 
 export const runtime = "nodejs";
 
@@ -23,10 +27,12 @@ interface ChatRequest {
   sessionId: string;
   userMessage: string;
   preferredProvider?: "local" | "cloud";
+  // Recherche web activée par l'utilisateur (bouton dans le chat). Off par défaut.
+  webSearch?: boolean;
 }
 
 export async function POST(req: Request) {
-  const { sessionId, userMessage, preferredProvider } = (await req.json()) as ChatRequest;
+  const { sessionId, userMessage, preferredProvider, webSearch } = (await req.json()) as ChatRequest;
 
   if (!sessionId || !userMessage?.trim()) {
     return NextResponse.json({ error: "sessionId et userMessage requis." }, { status: 400 });
@@ -84,6 +90,51 @@ export async function POST(req: Request) {
     }
   }
 
+  // Recherche web : on cherche des infos réelles à partir du message, et on les
+  // injectera dans le prompt (comme previousContext ci-dessus). Si la recherche
+  // échoue (clé absente, réseau coupé, quota...), on continue SANS : une option
+  // de confort ne doit jamais faire planter le chat. D'où le try/catch.
+  let webContext = "";
+  // On garde aussi la liste des sources (titre + url) pour l'accrocher à la
+  // réponse : l'UI en fera des liens cliquables. L'ordre est le même que la
+  // numérotation [1], [2]... injectée dans le prompt.
+  let webSources: { title: string; url: string }[] = [];
+  // Recherche web seulement si l'utilisateur a activé le bouton (sinon la réponse
+  // s'affiche tout de suite, sans étape de recherche préalable → bien plus rapide).
+  if (webSearch) {
+    // Étape 1 : tool-calling natif. Le modèle appelle lui-même web_search.
+    // S'il répond "FINI" sans appeler d'outil, c'est une DÉCISION (aucune
+    // recherche utile) : on la respecte, webContext reste vide, et on s'arrête là.
+    let toolCallingFailed = false;
+    try {
+      const research = await runWebResearch(updatedHistory, preferredProvider);
+      webContext = research.webContext;
+      webSources = research.sources;
+    } catch (e) {
+      // On ne tombe en étape 2 QUE si le tool-calling n'a pas pu tourner du tout
+      // (modèle sans support des outils, Ollama injoignable...). Sinon on
+      // re-générerait pour rien : c'est ce qui doublait le temps de réponse.
+      console.error("Tool-calling indisponible :", e);
+      toolCallingFailed = true;
+    }
+
+    // Étape 2 : fallback manuel, seulement si l'étape 1 n'a pas pu s'exécuter.
+    // On demande au modèle "faut-il chercher, et quelle requête ?", puis on
+    // cherche directement. Marche même sur un modèle sans support des outils.
+    if (toolCallingFailed) {
+      try {
+        const query = await decideSearchQuery(updatedHistory, preferredProvider);
+        if (query) {
+          const search = await searchWeb(query);
+          webContext = formatWebResultsForPrompt(search);
+          webSources = search.results.map((r) => ({ title: r.title, url: r.url }));
+        }
+      } catch (e2) {
+        console.error("Recherche web ignorée :", e2);
+      }
+    }
+  }
+
   const fullName =
     typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "";
   const firstName = fullName.trim().split(/\s+/)[0] || "";
@@ -95,7 +146,7 @@ export async function POST(req: Request) {
       session.challenger_mode,
       session.project_type as ProjectType,
       isFirstReply && firstName ? firstName : undefined,
-    ) + previousContext;
+    ) + previousContext + webContext;
 
   const llmMessages: LLMMessage[] = [
     { role: "system", content: systemPrompt },
@@ -159,6 +210,7 @@ export async function POST(req: Request) {
       };
       if (parsed.deliverables.length) assistantMsg.deliverables = parsed.deliverables;
       if (parsed.challenges.length) assistantMsg.challenges = parsed.challenges;
+      if (webSources.length) assistantMsg.sources = webSources;
 
       send({ t: "text-done", assistant: assistantMsg, title: newTitle });
 
@@ -202,6 +254,147 @@ export async function POST(req: Request) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+// Définition de l'outil exposé au modèle : une fonction "web_search" qui prend
+// une requête. Le modèle lit cette description pour décider quand l'appeler.
+const WEB_SEARCH_TOOL: ToolDef = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description:
+      "Recherche des informations récentes et factuelles sur le web (chiffres, prix, concurrents, taille de marché, tendances, actualités). À utiliser dès qu'une donnée vérifiable et à jour manque pour répondre.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "La requête de recherche, formulée comme une recherche Google.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+};
+
+// Boucle d'agent en TOOL-CALLING NATIF. On donne l'outil web_search au modèle ;
+// il décide lui-même s'il l'appelle (et peut l'appeler plusieurs fois pour
+// creuser). On exécute chaque recherche, on lui renvoie le résultat, et on
+// recommence jusqu'à ce qu'il n'ait plus besoin de chercher (max 3 tours).
+async function runWebResearch(
+  conversation: ChatMessage[],
+  preferredProvider?: "local" | "cloud",
+): Promise<{ webContext: string; sources: { title: string; url: string }[] }> {
+  const recent = conversation.slice(-6);
+  // Le fil de la "sous-conversation" de recherche, en format normalisé
+  // (callModelWithTools le traduit ensuite pour Ollama ou Mistral).
+  const messages: ToolLoopMessage[] = [
+    {
+      role: "system",
+      content:
+        'Tu es un assistant de recherche. À partir de la conversation, utilise l\'outil web_search autant de fois que nécessaire pour rassembler les infos factuelles utiles (tu peux chercher plusieurs fois pour creuser un sujet). Quand tu as assez d\'infos — ou si aucune recherche n\'est utile (remerciement, small talk, coaching, reformulation) — réponds juste "FINI" sans appeler d\'outil.',
+    },
+    ...recent.map((m): ToolLoopMessage => ({ role: m.role, content: m.content })),
+  ];
+
+  const collected: { title: string; url: string; content: string; score: number }[] = [];
+  // 1 seul tour de recherche = rapide. Passe à 2-3 si tu veux que l'agent creuse
+  // en plusieurs recherches successives, au prix de la vitesse (chaque tour = une
+  // génération du modèle en plus).
+  const MAX_STEPS = 1;
+
+  for (let step = 0; step < MAX_STEPS; step++) {
+    // On respecte le choix de l'utilisateur : "local" force le local (pas de
+    // bascule cloud cachée), "cloud" force le cloud, et sans choix on laisse
+    // callModelWithTools faire son réflexe habituel (Ollama puis cloud en secours).
+    const { data: turn, providerLabel } = await callModelWithTools(messages, [WEB_SEARCH_TOOL], {
+      forceProvider: preferredProvider,
+    });
+    if (step === 0) console.log(`[recherche] tool-calling via ${providerLabel}`);
+    if (turn.toolCalls.length === 0) break; // le modèle estime avoir fini
+
+    // On rejoue le message de l'assistant (avec ses demandes d'outils) : l'API a
+    // besoin de ce lien entre la demande et la réponse d'outil.
+    messages.push({ role: "assistant", content: turn.content, toolCalls: turn.toolCalls });
+
+    for (const call of turn.toolCalls) {
+      let query = "";
+      try {
+        query = (JSON.parse(call.arguments) as { query?: string }).query ?? "";
+      } catch {
+        /* arguments mal formés : on ignore cette demande */
+      }
+      let toolOutput = "Aucun résultat.";
+      if (query) {
+        // Visible dans le terminal `npm run dev` : tu vois l'agent chercher, et
+        // parfois enchaîner plusieurs recherches au sein d'une même réponse.
+        console.log(`[web_search] étape ${step + 1} → "${query}"`);
+        const search = await searchWeb(query);
+        for (const r of search.results) {
+          collected.push({ title: r.title, url: r.url, content: r.content, score: r.score });
+        }
+        toolOutput =
+          search.results.map((r) => `${r.title} — ${r.url}\n${r.content}`).join("\n\n") ||
+          "Aucun résultat.";
+      }
+      // On renvoie le résultat de la recherche au modèle (message de rôle "tool").
+      messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: toolOutput });
+    }
+  }
+
+  // Dédoublonne les pages par URL (le modèle peut retomber sur les mêmes).
+  const seen = new Set<string>();
+  const unique = collected.filter((c) => (seen.has(c.url) ? false : (seen.add(c.url), true)));
+
+  // On réutilise exactement le même formatage que la recherche simple, pour que
+  // les citations [1], [2]... du modèle correspondent à l'ordre de `sources`.
+  const webContext = unique.length
+    ? formatWebResultsForPrompt({ query: "", answer: null, results: unique })
+    : "";
+  const sources = unique.map((u) => ({ title: u.title, url: u.url }));
+  return { webContext, sources };
+}
+
+// "Cerveau" du bouton recherche : à partir de la conversation, le modèle décide
+// s'il faut chercher sur le web et, si oui, formule la requête idéale (souvent
+// différente de la phrase tapée par l'utilisateur).
+// Renvoie la requête à chercher, ou `null` si une recherche est inutile.
+async function decideSearchQuery(
+  conversation: ChatMessage[],
+  forceProvider?: "local" | "cloud",
+): Promise<string | null> {
+  // On ne donne que les derniers tours : le modèle a juste besoin du sujet du moment.
+  const recent = conversation.slice(-6);
+  const transcript = recent
+    .map((m) => `${m.role === "user" ? "Utilisateur" : "Assistant"} : ${m.content}`)
+    .join("\n");
+
+  const system = `Tu décides s'il faut faire une recherche web pour bien répondre au dernier message.
+Une recherche est UTILE pour : chiffres, prix, concurrents, taille de marché, tendances, actualités, faits vérifiables et récents.
+Une recherche est INUTILE pour : remerciements, "bonjour", small talk, questions d'opinion ou de coaching, reformulations, ou quand l'historique de la conversation suffit déjà.
+
+Réponds UNIQUEMENT en JSON, sans aucun autre texte :
+{ "needSearch": true ou false, "query": "la requête web idéale, courte, formulée comme une recherche Google" }
+Si needSearch vaut false, mets "query": "".`;
+
+  try {
+    const { data: raw } = await callChatModel(
+      [
+        { role: "system", content: system },
+        { role: "user", content: `Conversation :\n${transcript}\n\nDécide maintenant.` },
+      ],
+      { jsonMode: true, forceProvider },
+    );
+    const parsed = JSON.parse(raw) as { needSearch?: boolean; query?: string };
+    if (parsed.needSearch && typeof parsed.query === "string" && parsed.query.trim()) {
+      return parsed.query.trim();
+    }
+    return null;
+  } catch {
+    // En cas de pépin (JSON cassé, modèle indispo...), on n'enrichit pas : le
+    // chat répond normalement, sans web. Une feature de confort ne casse rien.
+    return null;
+  }
 }
 
 async function generateArtifacts(args: {
