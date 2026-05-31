@@ -48,12 +48,51 @@ function compareTasks(a: Task, b: Task): number {
   return a.created_at < b.created_at ? 1 : -1;
 }
 
+type TaskFilter = "all" | "overdue" | "week" | "high";
+
+const FILTERS: Array<{ id: TaskFilter; label: string; icon?: IconName }> = [
+  { id: "all", label: "Toutes" },
+  { id: "overdue", label: "En retard", icon: "warning" },
+  { id: "week", label: "Cette semaine", icon: "clock" },
+  { id: "high", label: "Priorité haute" },
+];
+
+// Aujourd'hui au format "YYYY-MM-DD" en heure LOCALE (pas UTC) — sert à comparer
+// avec due_date qui est aussi une chaîne "YYYY-MM-DD". Comparaison de chaînes = ok.
+function todayStr(): string {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+// Date locale dans N jours, au format "YYYY-MM-DD".
+function inDaysStr(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+// Prédicat d'un filtre. Les filtres temporels ignorent les tâches `done`
+// (une tâche faite n'est plus "en retard" ni "à venir").
+function matchesFilter(task: Task, filter: TaskFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "high") return task.priority === "high";
+  if (task.status === "done" || !task.due_date) return false;
+  if (filter === "overdue") return task.due_date < todayStr();
+  if (filter === "week") return task.due_date >= todayStr() && task.due_date <= inDaysStr(7);
+  return true;
+}
+
 export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => void }) {
   const isMobile = useIsMobile();
   const supabase = createClient();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState("");
+  const [filter, setFilter] = useState<TaskFilter>("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,15 +110,32 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
 
   const grouped = useMemo(() => {
     const g: Record<TaskStatus, Task[]> = { todo: [], doing: [], done: [] };
-    for (const t of tasks) g[t.status].push(t);
+    for (const t of tasks) {
+      if (matchesFilter(t, filter)) g[t.status].push(t);
+    }
     for (const status of STATUS_ORDER) g[status].sort(compareTasks);
     return g;
+  }, [tasks, filter]);
+
+  // Compteurs pour les pastilles des chips — calculés sur TOUTES les tâches,
+  // indépendamment du filtre actif.
+  const counts = useMemo(() => {
+    const c: Record<TaskFilter, number> = { all: tasks.length, overdue: 0, week: 0, high: 0 };
+    for (const t of tasks) {
+      if (matchesFilter(t, "overdue")) c.overdue++;
+      if (matchesFilter(t, "week")) c.week++;
+      if (matchesFilter(t, "high")) c.high++;
+    }
+    return c;
   }, [tasks]);
 
+  // Progression calculée sur TOUTES les tâches (pas le sous-ensemble filtré),
+  // pour rester stable quel que soit le filtre actif.
+  const doneCount = useMemo(() => tasks.filter((t) => t.status === "done").length, [tasks]);
   const progress = useMemo(() => {
     if (tasks.length === 0) return 0;
-    return Math.round((grouped.done.length / tasks.length) * 100);
-  }, [tasks, grouped.done]);
+    return Math.round((doneCount / tasks.length) * 100);
+  }, [tasks, doneCount]);
 
   const addTask = async () => {
     const text = newTaskText.trim();
@@ -115,6 +171,12 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
   const setDueDate = async (task: Task, due_date: string | null) => {
     setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, due_date } : t)));
     await supabase.from("tasks").update({ due_date }).eq("id", task.id);
+  };
+
+  const setContent = async (task: Task, content: string) => {
+    if (content === task.content) return;
+    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, content } : t)));
+    await supabase.from("tasks").update({ content }).eq("id", task.id);
   };
 
   const removeTask = async (task: Task) => {
@@ -158,7 +220,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
                 fontWeight: 600,
               }}
             >
-              {grouped.done.length} / {tasks.length} · {progress}%
+              {doneCount} / {tasks.length} · {progress}%
             </span>
           )}
         </div>
@@ -239,6 +301,42 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
             Ajouter
           </button>
         </div>
+
+        {/* Barre de filtres */}
+        {tasks.length > 0 && (
+          <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+            {FILTERS.map((f) => {
+              const active = filter === f.id;
+              const count = counts[f.id];
+              // On masque les chips temporels/priorité vides (sauf "Toutes").
+              if (f.id !== "all" && count === 0) return null;
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => setFilter(f.id)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    background: active ? C.navy : C.white,
+                    color: active ? "white" : C.textSub,
+                    border: `1.5px solid ${active ? C.navy : C.border}`,
+                    borderRadius: 100,
+                    padding: "5px 11px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {f.icon && <Icon name={f.icon} size={11} color={active ? "white" : C.textSub} />}
+                  {f.label}
+                  <span style={{ opacity: active ? 0.85 : 0.6, fontWeight: 600 }}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Body — 3 colonnes kanban */}
@@ -350,17 +448,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
                           gap: 7,
                         }}
                       >
-                        <div
-                          style={{
-                            fontSize: 13,
-                            color: C.text,
-                            lineHeight: 1.45,
-                            textDecoration: status === "done" ? "line-through" : "none",
-                            opacity: status === "done" ? 0.7 : 1,
-                          }}
-                        >
-                          {task.content}
-                        </div>
+                        <EditableContent task={task} done={status === "done"} fontSize={13} onSave={(c) => setContent(task, c)} />
                         {(prio || due) && (
                           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                             {prio && <Badge label={prio.label} color={prio.color} bg={prio.bg} icon={task.priority === "high" ? "warning" : undefined} />}
@@ -509,6 +597,89 @@ function TaskControls({
   );
 }
 
+// Contenu de tâche éditable au clic. État local (editing + draft) : tant qu'on
+// n'édite pas, on affiche un div ; au clic on bascule en textarea. On sauvegarde
+// sur Entrée ou perte de focus, on annule sur Échap. Le parent n'est notifié
+// (onSave) que si le texte a réellement changé et n'est pas vide.
+function EditableContent({
+  task,
+  done,
+  fontSize,
+  onSave,
+}: {
+  task: Task;
+  done: boolean;
+  fontSize: number;
+  onSave: (content: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(task.content);
+
+  const startEdit = () => {
+    setDraft(task.content);
+    setEditing(true);
+  };
+  const commit = () => {
+    setEditing(false);
+    const text = draft.trim();
+    if (text && text !== task.content) onSave(text);
+    else setDraft(task.content);
+  };
+
+  if (editing) {
+    return (
+      <textarea
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            setDraft(task.content);
+            setEditing(false);
+          }
+        }}
+        rows={2}
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          fontSize,
+          color: C.text,
+          lineHeight: 1.45,
+          fontFamily: "inherit",
+          border: `1px solid ${C.navyMid}`,
+          borderRadius: 6,
+          padding: "5px 7px",
+          outline: "none",
+          resize: "vertical",
+          background: C.white,
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      onClick={startEdit}
+      title="Cliquer pour modifier"
+      style={{
+        fontSize,
+        color: C.text,
+        lineHeight: 1.45,
+        textDecoration: done ? "line-through" : "none",
+        opacity: done ? 0.7 : 1,
+        cursor: "text",
+        whiteSpace: "pre-wrap",
+      }}
+    >
+      {task.content}
+    </div>
+  );
+}
+
 // Petit badge générique réutilisé pour priorité + échéance.
 function Badge({ label, color, bg, icon }: { label: string; color: string; bg: string; icon?: IconName }) {
   return (
@@ -544,6 +715,10 @@ function dueDateMeta(dueDate: string, done: boolean): { label: string; color: st
   const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
 
   const short = due.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+
+  // Une tâche faite n'est jamais "en retard" : on affiche juste la date, en gris.
+  if (done) return { label: short, color: C.textMute, bg: C.bg };
+
   let label: string;
   if (diff === 0) label = "Aujourd'hui";
   else if (diff === 1) label = "Demain";
@@ -551,7 +726,6 @@ function dueDateMeta(dueDate: string, done: boolean): { label: string; color: st
   else if (diff < 0) label = `Retard · ${short}`;
   else label = short;
 
-  if (done) return { label, color: C.textMute, bg: C.bg };
   if (diff < 0) return { label, color: "#DC2626", bg: "#FEF2F2" };
   if (diff <= 1) return { label, color: "#D97706", bg: "#FFFBEB" };
   return { label, color: C.textSub, bg: C.bg };

@@ -181,6 +181,12 @@ export function ProjectDetailScreen({
     await supabase.from("tasks").update({ due_date }).eq("id", task.id);
   };
 
+  const setContent = async (task: Task, content: string) => {
+    if (content === task.content) return;
+    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, content } : t)));
+    await supabase.from("tasks").update({ content }).eq("id", task.id);
+  };
+
   if (!loading && !project) {
     return (
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMute, fontSize: 14 }}>
@@ -539,6 +545,7 @@ export function ProjectDetailScreen({
                       onSetStatus={(s) => setStatus(task, s)}
                       onSetPriority={(p) => setPriority(task, p)}
                       onSetDue={(d) => setDueDate(task, d)}
+                      onSetContent={(c) => setContent(task, c)}
                       onDelete={() => removeTask(task)}
                       onOpenSession={onOpenSession}
                     />
@@ -590,6 +597,7 @@ export function ProjectDetailScreen({
                         onSetStatus={(s) => setStatus(task, s)}
                         onSetPriority={(p) => setPriority(task, p)}
                         onSetDue={(d) => setDueDate(task, d)}
+                        onSetContent={(c) => setContent(task, c)}
                         onDelete={() => removeTask(task)}
                         onOpenSession={onOpenSession}
                       />
@@ -794,6 +802,7 @@ function TaskCard({
   onCycle,
   onSetPriority,
   onSetDue,
+  onSetContent,
   onDelete,
   onOpenSession,
 }: {
@@ -802,6 +811,7 @@ function TaskCard({
   onSetStatus: (s: TaskStatus) => void;
   onSetPriority: (p: TaskPriority) => void;
   onSetDue: (d: string | null) => void;
+  onSetContent: (c: string) => void;
   onDelete: () => void;
   onOpenSession: (id: string) => void;
 }) {
@@ -822,17 +832,7 @@ function TaskCard({
         gap: 7,
       }}
     >
-      <div
-        style={{
-          fontSize: 13,
-          color: C.text,
-          lineHeight: 1.45,
-          textDecoration: status === "done" ? "line-through" : "none",
-          opacity: status === "done" ? 0.7 : 1,
-        }}
-      >
-        {task.content}
-      </div>
+      <EditableContent task={task} done={status === "done"} fontSize={13} onSave={onSetContent} />
       {(prio || due) && (
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
           {prio && <Badge label={prio.label} color={prio.color} bg={prio.bg} icon={task.priority === "high" ? "warning" : undefined} />}
@@ -933,6 +933,7 @@ function TaskRow({
   onSetStatus,
   onSetPriority,
   onSetDue,
+  onSetContent,
   onDelete,
   onOpenSession,
 }: {
@@ -941,6 +942,7 @@ function TaskRow({
   onSetStatus: (s: TaskStatus) => void;
   onSetPriority: (p: TaskPriority) => void;
   onSetDue: (d: string | null) => void;
+  onSetContent: (c: string) => void;
   onDelete: () => void;
   onOpenSession: (id: string) => void;
 }) {
@@ -981,17 +983,7 @@ function TaskRow({
         {status === "done" && <Icon name="check" size={11} color="white" />}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 13.5,
-            color: C.text,
-            lineHeight: 1.4,
-            textDecoration: status === "done" ? "line-through" : "none",
-            opacity: status === "done" ? 0.65 : 1,
-          }}
-        >
-          {task.content}
-        </div>
+        <EditableContent task={task} done={status === "done"} fontSize={13.5} onSave={onSetContent} />
         {(prio || due) && (
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4 }}>
             {prio && <Badge label={prio.label} color={prio.color} bg={prio.bg} icon={task.priority === "high" ? "warning" : undefined} />}
@@ -1075,6 +1067,89 @@ function TaskRow({
   );
 }
 
+// Contenu de tâche éditable au clic. État local (editing + draft) : tant qu'on
+// n'édite pas, on affiche un div ; au clic on bascule en textarea. On sauvegarde
+// sur Entrée ou perte de focus, on annule sur Échap. Le parent n'est notifié
+// (onSave) que si le texte a réellement changé et n'est pas vide.
+function EditableContent({
+  task,
+  done,
+  fontSize,
+  onSave,
+}: {
+  task: Task;
+  done: boolean;
+  fontSize: number;
+  onSave: (content: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(task.content);
+
+  const startEdit = () => {
+    setDraft(task.content);
+    setEditing(true);
+  };
+  const commit = () => {
+    setEditing(false);
+    const text = draft.trim();
+    if (text && text !== task.content) onSave(text);
+    else setDraft(task.content);
+  };
+
+  if (editing) {
+    return (
+      <textarea
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            setDraft(task.content);
+            setEditing(false);
+          }
+        }}
+        rows={2}
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          fontSize,
+          color: C.text,
+          lineHeight: 1.45,
+          fontFamily: "inherit",
+          border: `1px solid ${C.navyMid}`,
+          borderRadius: 6,
+          padding: "5px 7px",
+          outline: "none",
+          resize: "vertical",
+          background: C.white,
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      onClick={startEdit}
+      title="Cliquer pour modifier"
+      style={{
+        fontSize,
+        color: C.text,
+        lineHeight: 1.45,
+        textDecoration: done ? "line-through" : "none",
+        opacity: done ? 0.7 : 1,
+        cursor: "text",
+        whiteSpace: "pre-wrap",
+      }}
+    >
+      {task.content}
+    </div>
+  );
+}
+
 // Petit badge générique réutilisé pour priorité + échéance.
 function Badge({ label, color, bg, icon }: { label: string; color: string; bg: string; icon?: IconName }) {
   return (
@@ -1110,6 +1185,10 @@ function dueDateMeta(dueDate: string, done: boolean): { label: string; color: st
   const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
 
   const short = due.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+
+  // Une tâche faite n'est jamais "en retard" : on affiche juste la date, en gris.
+  if (done) return { label: short, color: C.textMute, bg: C.bg };
+
   let label: string;
   if (diff === 0) label = "Aujourd'hui";
   else if (diff === 1) label = "Demain";
@@ -1117,7 +1196,6 @@ function dueDateMeta(dueDate: string, done: boolean): { label: string; color: st
   else if (diff < 0) label = `Retard · ${short}`;
   else label = short;
 
-  if (done) return { label, color: C.textMute, bg: C.bg };
   if (diff < 0) return { label, color: "#DC2626", bg: "#FEF2F2" };
   if (diff <= 1) return { label, color: "#D97706", bg: "#FFFBEB" };
   return { label, color: C.textSub, bg: C.bg };
