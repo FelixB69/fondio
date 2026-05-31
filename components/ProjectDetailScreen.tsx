@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AGENTS, AgentId, ChatMessage, PROJECT_TYPES, ProjectType, Task, TaskStatus } from "@/lib/data";
+import { AGENTS, AgentId, ChatMessage, PROJECT_TYPES, ProjectType, Task, TaskPriority, TaskStatus } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { computeStats, Project, ProjectStats, STAGES, StageId } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
@@ -19,6 +19,33 @@ const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
   doing: "done",
   done: "todo",
 };
+
+// Métadonnées d'affichage par priorité. `normal` = null → aucun badge (réduit le bruit).
+const PRIORITY_META: Record<TaskPriority, { label: string; color: string; bg: string } | null> = {
+  low: { label: "Basse", color: C.textMute, bg: C.bg },
+  normal: null,
+  high: { label: "Haute", color: "#DC2626", bg: "#FEF2F2" },
+};
+
+// Rang de tri : plus petit = plus haut dans la liste.
+const PRIORITY_RANK: Record<TaskPriority, number> = { high: 0, normal: 1, low: 2 };
+
+// Ordre de tri d'une colonne : échéance (datées avant non datées, plus proche
+// d'abord → retards en haut) → priorité → création la plus récente.
+// due_date est une chaîne "YYYY-MM-DD" : la comparaison alphabétique suffit.
+function compareTasks(a: Task, b: Task): number {
+  if (a.due_date && b.due_date) {
+    if (a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1;
+  } else if (a.due_date) {
+    return -1;
+  } else if (b.due_date) {
+    return 1;
+  }
+  if (PRIORITY_RANK[a.priority] !== PRIORITY_RANK[b.priority]) {
+    return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+  }
+  return a.created_at < b.created_at ? 1 : -1;
+}
 
 const STATUS_ORDER: TaskStatus[] = ["todo", "doing", "done"];
 
@@ -64,7 +91,7 @@ export function ProjectDetailScreen({
         .single(),
       supabase
         .from("tasks")
-        .select("id, session_id, project_id, content, status, source_agent_id, created_at, completed_at")
+        .select("id, session_id, project_id, content, status, priority, due_date, source_agent_id, created_at, completed_at")
         .eq("project_id", projectId)
         .order("created_at", { ascending: false }),
       supabase
@@ -87,6 +114,7 @@ export function ProjectDetailScreen({
   const grouped = useMemo(() => {
     const g: Record<TaskStatus, Task[]> = { todo: [], doing: [], done: [] };
     for (const t of tasks) g[t.status].push(t);
+    for (const status of STATUS_ORDER) g[status].sort(compareTasks);
     return g;
   }, [tasks]);
 
@@ -115,7 +143,7 @@ export function ProjectDetailScreen({
     const { data, error } = await supabase
       .from("tasks")
       .insert({ user_id: user.id, project_id: projectId, content: text, status: "todo" })
-      .select("id, session_id, project_id, content, status, source_agent_id, created_at, completed_at")
+      .select("id, session_id, project_id, content, status, priority, due_date, source_agent_id, created_at, completed_at")
       .single();
     if (error || !data) return;
     setTasks((p) => [data as Task, ...p]);
@@ -139,6 +167,18 @@ export function ProjectDetailScreen({
   const removeTask = async (task: Task) => {
     setTasks((p) => p.filter((t) => t.id !== task.id));
     await supabase.from("tasks").delete().eq("id", task.id);
+  };
+
+  const setPriority = async (task: Task, priority: TaskPriority) => {
+    if (task.priority === priority) return;
+    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, priority } : t)));
+    await supabase.from("tasks").update({ priority }).eq("id", task.id);
+  };
+
+  // due_date null = on enlève l'échéance. L'input HTML renvoie "" → on le convertit en null.
+  const setDueDate = async (task: Task, due_date: string | null) => {
+    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, due_date } : t)));
+    await supabase.from("tasks").update({ due_date }).eq("id", task.id);
   };
 
   if (!loading && !project) {
@@ -497,6 +537,8 @@ export function ProjectDetailScreen({
                       task={task}
                       onCycle={() => cycleStatus(task)}
                       onSetStatus={(s) => setStatus(task, s)}
+                      onSetPriority={(p) => setPriority(task, p)}
+                      onSetDue={(d) => setDueDate(task, d)}
                       onDelete={() => removeTask(task)}
                       onOpenSession={onOpenSession}
                     />
@@ -546,6 +588,8 @@ export function ProjectDetailScreen({
                         task={task}
                         onCycle={() => cycleStatus(task)}
                         onSetStatus={(s) => setStatus(task, s)}
+                        onSetPriority={(p) => setPriority(task, p)}
+                        onSetDue={(d) => setDueDate(task, d)}
                         onDelete={() => removeTask(task)}
                         onOpenSession={onOpenSession}
                       />
@@ -700,21 +744,72 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode
   );
 }
 
+// Contrôles d'édition partagés (priorité + échéance), réutilisés par carte et ligne.
+function TaskControls({
+  task,
+  onSetPriority,
+  onSetDue,
+}: {
+  task: Task;
+  onSetPriority: (p: TaskPriority) => void;
+  onSetDue: (d: string | null) => void;
+}) {
+  const ctrlStyle = {
+    background: C.white,
+    color: C.textSub,
+    border: `1px solid ${C.border}`,
+    borderRadius: 6,
+    padding: "3px 6px",
+    fontSize: 11,
+    fontWeight: 600,
+    fontFamily: "inherit",
+    cursor: "pointer",
+  } as const;
+  return (
+    <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+      <select
+        value={task.priority}
+        onChange={(e) => onSetPriority(e.target.value as TaskPriority)}
+        title="Priorité"
+        style={ctrlStyle}
+      >
+        <option value="low">Basse</option>
+        <option value="normal">Normale</option>
+        <option value="high">Haute</option>
+      </select>
+      {/* value="" quand pas d'échéance ; l'input renvoie "" si vidé → on remet null. */}
+      <input
+        type="date"
+        value={task.due_date ?? ""}
+        onChange={(e) => onSetDue(e.target.value || null)}
+        title="Échéance"
+        style={{ ...ctrlStyle, color: task.due_date ? C.text : C.textMute }}
+      />
+    </div>
+  );
+}
+
 function TaskCard({
   task,
   onCycle,
+  onSetPriority,
+  onSetDue,
   onDelete,
   onOpenSession,
 }: {
   task: Task;
   onCycle: () => void;
   onSetStatus: (s: TaskStatus) => void;
+  onSetPriority: (p: TaskPriority) => void;
+  onSetDue: (d: string | null) => void;
   onDelete: () => void;
   onOpenSession: (id: string) => void;
 }) {
   const meta = STATUS_META[task.status];
   const status = task.status;
   const agent = task.source_agent_id ? AGENTS[task.source_agent_id as AgentId] : null;
+  const prio = PRIORITY_META[task.priority];
+  const due = task.due_date ? dueDateMeta(task.due_date, status === "done") : null;
   return (
     <div
       style={{
@@ -738,6 +833,12 @@ function TaskCard({
       >
         {task.content}
       </div>
+      {(prio || due) && (
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {prio && <Badge label={prio.label} color={prio.color} bg={prio.bg} icon={task.priority === "high" ? "warning" : undefined} />}
+          {due && <Badge label={due.label} color={due.color} bg={due.bg} icon="clock" />}
+        </div>
+      )}
       {agent && (
         <div
           style={{
@@ -770,6 +871,7 @@ function TaskCard({
           )}
         </div>
       )}
+      <TaskControls task={task} onSetPriority={onSetPriority} onSetDue={onSetDue} />
       <div style={{ display: "flex", gap: 5 }}>
         <button
           onClick={onCycle}
@@ -829,18 +931,24 @@ function TaskRow({
   task,
   onCycle,
   onSetStatus,
+  onSetPriority,
+  onSetDue,
   onDelete,
   onOpenSession,
 }: {
   task: Task;
   onCycle: () => void;
   onSetStatus: (s: TaskStatus) => void;
+  onSetPriority: (p: TaskPriority) => void;
+  onSetDue: (d: string | null) => void;
   onDelete: () => void;
   onOpenSession: (id: string) => void;
 }) {
   const meta = STATUS_META[task.status];
   const status = task.status;
   const agent = task.source_agent_id ? AGENTS[task.source_agent_id as AgentId] : null;
+  const prio = PRIORITY_META[task.priority];
+  const due = task.due_date ? dueDateMeta(task.due_date, status === "done") : null;
   return (
     <div
       style={{
@@ -884,6 +992,12 @@ function TaskRow({
         >
           {task.content}
         </div>
+        {(prio || due) && (
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4 }}>
+            {prio && <Badge label={prio.label} color={prio.color} bg={prio.bg} icon={task.priority === "high" ? "warning" : undefined} />}
+            {due && <Badge label={due.label} color={due.color} bg={due.bg} icon="clock" />}
+          </div>
+        )}
         {agent && (
           <div
             style={{
@@ -918,6 +1032,7 @@ function TaskRow({
           </div>
         )}
       </div>
+      <TaskControls task={task} onSetPriority={onSetPriority} onSetDue={onSetDue} />
       <select
         value={status}
         onChange={(e) => onSetStatus(e.target.value as TaskStatus)}
@@ -958,6 +1073,54 @@ function TaskRow({
       </button>
     </div>
   );
+}
+
+// Petit badge générique réutilisé pour priorité + échéance.
+function Badge({ label, color, bg, icon }: { label: string; color: string; bg: string; icon?: IconName }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        background: bg,
+        color,
+        border: `1px solid ${color}28`,
+        borderRadius: 5,
+        padding: "2px 6px",
+        fontSize: 10,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {icon && <Icon name={icon} size={9} color={color} />}
+      {label}
+    </span>
+  );
+}
+
+// Transforme une échéance "YYYY-MM-DD" en label + couleur selon l'urgence.
+// On parse en date LOCALE (pas UTC) pour éviter les décalages de fuseau, et on
+// compare au jour d'aujourd'hui à minuit. Une tâche `done` n'est jamais "en retard".
+function dueDateMeta(dueDate: string, done: boolean): { label: string; color: string; bg: string } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const [y, m, d] = dueDate.split("-").map(Number);
+  const due = new Date(y, m - 1, d);
+  const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
+
+  const short = due.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  let label: string;
+  if (diff === 0) label = "Aujourd'hui";
+  else if (diff === 1) label = "Demain";
+  else if (diff === -1) label = "Hier";
+  else if (diff < 0) label = `Retard · ${short}`;
+  else label = short;
+
+  if (done) return { label, color: C.textMute, bg: C.bg };
+  if (diff < 0) return { label, color: "#DC2626", bg: "#FEF2F2" };
+  if (diff <= 1) return { label, color: "#D97706", bg: "#FFFBEB" };
+  return { label, color: C.textSub, bg: C.bg };
 }
 
 function formatRelative(iso: string): string {

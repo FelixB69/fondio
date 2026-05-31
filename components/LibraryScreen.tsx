@@ -28,6 +28,15 @@ interface SessionRow {
 
 type FilterMode = "all" | ProjectType;
 
+// Agent de secours quand un livrable référence un agent_id qui n'existe plus
+// (agent renommé/supprimé dans data.ts). Évite le crash et garde le livrable visible.
+const FALLBACK_AGENT = {
+  name: "Agent inconnu",
+  icon: "sparkles" as IconName,
+  color: C.textMute,
+  bg: C.bg,
+};
+
 function formatRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.round(diff / 60000);
@@ -143,9 +152,13 @@ export function LibraryScreen({
   }, [filtered]);
 
   // Agents qui ont au moins un livrable (pour les chips de filtre).
+  // On ignore les ids orphelins (agents renommés/supprimés) absents de AGENTS,
+  // sinon le bouton-filtre planterait en lisant agent.icon sur un undefined.
   const usedAgents = useMemo(() => {
     const s = new Set<AgentId>();
-    entries.forEach((e) => s.add(e.agentId));
+    entries.forEach((e) => {
+      if (AGENTS[e.agentId]) s.add(e.agentId);
+    });
     return Array.from(s);
   }, [entries]);
 
@@ -279,7 +292,7 @@ export function LibraryScreen({
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {grouped.map((g) => {
-            const agent = AGENTS[g.agentId];
+            const agent = AGENTS[g.agentId] ?? FALLBACK_AGENT;
             const meta = PROJECT_TYPES[g.projectType];
             return (
               <div

@@ -47,6 +47,7 @@ import {
   LuGlobe,
   LuStar,
   LuLayers,
+  LuClock,
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 
@@ -97,7 +98,8 @@ export type IconName =
   | "trendingUp"
   | "globe"
   | "star"
-  | "layers";
+  | "layers"
+  | "clock";
 
 interface IconProps {
   name: IconName;
@@ -154,6 +156,7 @@ const ICONS: Record<IconName, IconType> = {
   globe: LuGlobe,
   star: LuStar,
   layers: LuLayers,
+  clock: LuClock,
 };
 
 export function Icon({ name, size = 16, color = "currentColor", style }: IconProps) {

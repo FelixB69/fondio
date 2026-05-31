@@ -97,6 +97,7 @@ Règles :
 `.trim();
 
 export type TaskStatus = "todo" | "doing" | "done";
+export type TaskPriority = "low" | "normal" | "high";
 
 export interface Task {
   id: string;
@@ -104,6 +105,9 @@ export interface Task {
   project_id: string | null;
   content: string;
   status: TaskStatus;
+  priority: TaskPriority;
+  // Échéance au format "YYYY-MM-DD" (type SQL `date`), ou null si aucune.
+  due_date: string | null;
   source_agent_id: AgentId | null;
   created_at: string;
   completed_at: string | null;
