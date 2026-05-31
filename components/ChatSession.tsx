@@ -12,6 +12,7 @@ import {
   SessionRow,
 } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import { stripTrailingSections } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
@@ -92,6 +93,9 @@ function ArtifactBlock({
         border: `1px solid ${color}28`,
         borderRadius: 8,
         padding: "10px 12px",
+        // Fondu d'ouverture : le livrable détaillé s'installe en douceur quand la
+        // 2e passe arrive, au lieu de surgir d'un coup.
+        animation: "fndFadeIn 0.3s ease both",
       }}
     >
       <div
@@ -472,10 +476,27 @@ function WebSearchingIndicator({ agentId }: { agentId: AgentId }) {
           color={color}
           style={{ animation: "fndPulse 1.2s ease-in-out infinite", flexShrink: 0 }}
         />
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>
-            Recherche web en cours…
-          </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>
+              Recherche web en cours
+            </span>
+            <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: "50%",
+                    background: color,
+                    display: "inline-block",
+                    animation: `fndBounce 1.1s ease-in-out ${i * 0.18}s infinite`,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
           <span style={{ fontSize: 11, color: C.textMute }}>
             La réponse sera un peu plus longue, le temps de consulter le web.
           </span>
@@ -647,18 +668,49 @@ function SourcesBlock({ sources }: { sources?: { title: string; url: string }[] 
   );
 }
 
+// Indicateur discret affiché SOUS les titres de livrables pendant la 2e passe
+// (Qwen matérialise les artefacts). Les titres restent visibles : on enrichit,
+// on ne remplace pas par du vide.
+function ArtifactsEnriching({ color }: { color: string }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        marginTop: 8,
+        fontSize: 11.5,
+        color: C.textMute,
+        fontWeight: 600,
+      }}
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: color,
+          animation: "fndBounce 1.1s ease-in-out infinite",
+          opacity: 0.7,
+        }}
+      />
+      Mise en forme des livrables…
+    </div>
+  );
+}
+
 function MessageBubble({
   msg,
   agentId,
   onConvertToTask,
   taskedItems,
-  pendingArtifacts,
+  artifactsLoading,
 }: {
   msg: ChatMessage;
   agentId: AgentId;
   onConvertToTask: (text: string) => void;
   taskedItems: Set<string>;
-  pendingArtifacts?: boolean;
+  artifactsLoading?: boolean;
 }) {
   if (msg.role === "user") {
     return (
@@ -712,30 +764,35 @@ function MessageBubble({
               __html: renderMarkdownWithCitations(msg.content, msg.sources, agent.color),
             }}
           />
-          {!pendingArtifacts && (
-            msg.artifacts && msg.artifacts.length > 0
-              ? msg.artifacts.map((a, i) => (
-                  <ArtifactBlock
-                    key={i}
-                    artifact={a}
-                    color={agent.color}
-                    bg={agent.bg}
-                    onConvertToTask={onConvertToTask}
-                    tasked={taskedItems.has(a.title)}
-                  />
-                ))
-              : (
-                <StructuredBlock
-                  label="Livrables"
-                  icon="tasks"
-                  items={msg.deliverables ?? []}
-                  color={agent.color}
-                  bg={agent.bg}
-                  onConvertToTask={onConvertToTask}
-                  taskedItems={taskedItems}
-                />
-              )
-          )}
+          {msg.artifacts && msg.artifacts.length > 0 ? (
+            msg.artifacts.map((a, i) => (
+              <ArtifactBlock
+                key={i}
+                artifact={a}
+                color={agent.color}
+                bg={agent.bg}
+                onConvertToTask={onConvertToTask}
+                tasked={taskedItems.has(a.title)}
+              />
+            ))
+          ) : msg.deliverables && msg.deliverables.length > 0 ? (
+            <>
+              {/* Progressive disclosure : les TITRES des livrables s'affichent
+                  immédiatement, puis sont remplacés en place par les artefacts
+                  détaillés (2e passe). Ils ne disparaissent jamais → fini le
+                  « vide puis réapparition ». */}
+              <StructuredBlock
+                label="Livrables"
+                icon="tasks"
+                items={msg.deliverables}
+                color={agent.color}
+                bg={agent.bg}
+                onConvertToTask={onConvertToTask}
+                taskedItems={taskedItems}
+              />
+              {artifactsLoading && <ArtifactsEnriching color={agent.color} />}
+            </>
+          ) : null}
           <StructuredBlock
             label="⚡ Questions difficiles"
             icon="zap"
@@ -786,6 +843,16 @@ export function ChatSession({
   const inputHistoryRef = useRef<string[]>([]);
   const historyIndexRef = useRef<number>(-1);
   const savedDraftRef = useRef<string>("");
+  // Scroll « collant » : on ne re-scrolle automatiquement que si l'utilisateur
+  // est DÉJÀ près du bas. S'il a remonté pour relire, on ne lui arrache plus la
+  // vue à chaque token / changement de hauteur.
+  const atBottomRef = useRef(true);
+
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
 
   useEffect(() => {
     setMessages(initialMessages);
@@ -820,8 +887,10 @@ export function ChatSession({
   }, [sessionId, supabase]);
 
   useEffect(() => {
-    if (messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-  }, [messages, loading, streamingContent]);
+    if (atBottomRef.current && messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    }
+  }, [messages, loading, streamingContent, loadingArtifacts]);
 
   const convertToTask = useCallback(
     async (text: string) => {
@@ -872,6 +941,8 @@ export function ChatSession({
     setMessages((p) => [...p, userMsg]);
     setLoading(true);
     setStreamingContent("");
+    // L'utilisateur vient d'envoyer : on le ramène en bas pour suivre la réponse.
+    atBottomRef.current = true;
 
     try {
       const res = await fetch("/api/chat", {
@@ -971,6 +1042,23 @@ export function ChatSession({
       setLoading(false);
     }
   }, [input, loading, sessionId, onTitleChange, preferredProvider, webSearch]);
+
+  // Réponse en cours de génération, rendue comme DERNIER élément de la même
+  // liste que les messages finaux (même position + même key par index). Quand
+  // `text-done` arrive, le vrai message prend ce même slot : React met à jour le
+  // nœud DOM au lieu de le démonter/remonter → plus de « flash » ni de swap.
+  // On coupe à LIVRABLES:/CHALLENGES: avec le MÊME helper que le parseur final,
+  // donc rien ne « rétrécit » au passage en message final.
+  const inflight: ChatMessage | null = streamingContent
+    ? {
+        role: "assistant",
+        content: stripTrailingSections(streamingContent),
+        ts: new Date().toISOString(),
+        provider: streamingProvider ?? undefined,
+        providerLabel: streamingProviderLabel,
+      }
+    : null;
+  const displayMessages = inflight ? [...messages, inflight] : messages;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: C.bg }}>
@@ -1265,6 +1353,7 @@ export function ChatSession({
       {/* Messages */}
       <div
         ref={messagesRef}
+        onScroll={handleMessagesScroll}
         style={{
           flex: 1,
           overflowY: "auto",
@@ -1291,17 +1380,21 @@ export function ChatSession({
             Plus tu donnes de contexte, plus la session sera utile.
           </div>
         )}
-        {messages.map((m, i) => (
+        {displayMessages.map((m, i) => (
           <MessageBubble
             key={i}
             msg={m}
             agentId={agentId}
             onConvertToTask={convertToTask}
             taskedItems={taskedItems}
-            pendingArtifacts={loadingArtifacts && i === messages.length - 1 && m.role === "assistant"}
+            artifactsLoading={
+              loadingArtifacts && i === displayMessages.length - 1 && m.role === "assistant"
+            }
           />
         ))}
-        {streamingProvider === "cloud" && (
+        {/* Annonce du provider cloud AVANT le 1er token. Une fois le texte qui
+            coule, le badge compact dans l'en-tête du message suffit (pas de doublon). */}
+        {streamingProvider === "cloud" && !streamingContent && (
           <div style={{ paddingLeft: 38 }}>
             <ProviderBadge
               provider="cloud"
@@ -1310,60 +1403,20 @@ export function ChatSession({
             />
           </div>
         )}
-        {streamingContent && (
-          <MessageBubble
-            msg={{
-              role: "assistant",
-              // On coupe à LIVRABLES:/CHALLENGES: pour ne pas montrer la
-              // section structurée en texte brut pendant le streaming —
-              // elle sera rendue proprement au `text-done`.
-              content: streamingContent.split(/\n\s*(?:LIVRABLES|CHALLENGES)\s*:/i)[0],
-              ts: new Date().toISOString(),
-              provider: streamingProvider ?? undefined,
-              providerLabel: streamingProviderLabel,
-            }}
-            agentId={agentId}
-            onConvertToTask={convertToTask}
-            taskedItems={taskedItems}
-          />
-        )}
         {loading &&
           !streamingContent &&
-          !loadingArtifacts &&
-          // Tant que le modèle n'a pas commencé à répondre (`provider` pas encore
-          // reçu) ET que la recherche web est active, on est dans l'étape de
-          // recherche : on l'annonce. Sinon, points de saisie classiques.
+          // On n'affiche les points QUE tant qu'aucune réponse assistant n'est
+          // encore à l'écran : avant le 1er token. Après `text-done`, le dernier
+          // message est l'assistant (et la mise en forme des livrables a son
+          // propre indicateur dans la bulle) → pas de points qui reviennent.
+          displayMessages[displayMessages.length - 1]?.role !== "assistant" &&
+          // Si la recherche web est active et que le modèle n'a pas commencé,
+          // on est dans l'étape de recherche : on l'annonce. Sinon, points classiques.
           (webSearch && !streamingProvider ? (
             <WebSearchingIndicator agentId={agentId} />
           ) : (
             <TypingDots agentId={agentId} />
           ))}
-        {loadingArtifacts && (
-          <div style={{ display: "flex", gap: 10, alignItems: "center", paddingLeft: 38 }}>
-            <div
-              style={{
-                fontSize: 12,
-                color: agent.color,
-                fontWeight: 600,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <div
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: agent.color,
-                  animation: "fndBounce 1.1s ease-in-out infinite",
-                  opacity: 0.7,
-                }}
-              />
-              Chargement des livrables en cours…
-            </div>
-          </div>
-        )}
         <div />
       </div>
 

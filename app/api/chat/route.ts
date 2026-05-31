@@ -103,25 +103,23 @@ export async function POST(req: Request) {
   // s'affiche tout de suite, sans étape de recherche préalable → bien plus rapide).
   if (webSearch) {
     // Étape 1 : tool-calling natif. Le modèle appelle lui-même web_search.
-    // S'il répond "FINI" sans appeler d'outil, c'est une DÉCISION (aucune
-    // recherche utile) : on la respecte, webContext reste vide, et on s'arrête là.
-    let toolCallingFailed = false;
     try {
       const research = await runWebResearch(updatedHistory, preferredProvider);
       webContext = research.webContext;
       webSources = research.sources;
     } catch (e) {
-      // On ne tombe en étape 2 QUE si le tool-calling n'a pas pu tourner du tout
-      // (modèle sans support des outils, Ollama injoignable...). Sinon on
-      // re-générerait pour rien : c'est ce qui doublait le temps de réponse.
+      // Le tool-calling n'a pas pu tourner (modèle sans support des outils,
+      // Ollama injoignable...). On laisse l'étape 2 prendre le relais.
       console.error("Tool-calling indisponible :", e);
-      toolCallingFailed = true;
     }
 
-    // Étape 2 : fallback manuel, seulement si l'étape 1 n'a pas pu s'exécuter.
-    // On demande au modèle "faut-il chercher, et quelle requête ?", puis on
-    // cherche directement. Marche même sur un modèle sans support des outils.
-    if (toolCallingFailed) {
+    // Étape 2 : fallback. On le déclenche dès que l'étape 1 n'a ramené AUCUNE
+    // source — que le tool-calling ait planté OU que le modèle ait répondu
+    // « FINI » sans chercher. L'utilisateur a EXPLICITEMENT activé le bouton
+    // web : on lui doit une vraie tentative. decideSearchQuery reste le garde-fou
+    // (il renvoie null pour un small talk / une question d'opinion), donc on ne
+    // cherche pas pour rien. On ne paie cette étape que si l'étape 1 a échoué.
+    if (webSources.length === 0) {
       try {
         const query = await decideSearchQuery(updatedHistory, preferredProvider);
         if (query) {
@@ -140,13 +138,21 @@ export async function POST(req: Request) {
   const firstName = fullName.trim().split(/\s+/)[0] || "";
   const isFirstReply = history.length === 0;
 
+  // Quand on injecte un gros bloc de résultats web, les consignes de format (la
+  // section LIVRABLES) se retrouvent loin de la fin du prompt et un petit modèle
+  // les « oublie ». On les ré-assène APRÈS le contexte web (effet de récence) et
+  // on rappelle de citer les sources — sinon ni livrables ni citations [1][2].
+  const webFormatReminder = webContext
+    ? "\n\nRAPPEL : appuie-toi sur les informations web ci-dessus et cite-les avec [1], [2]… quand tu les utilises. Puis, si tu livres quelque chose de concret, termine ta réponse par une section `LIVRABLES:` (ce mot exact, seul sur sa ligne, sans markdown) suivie de 1 à 3 puces."
+    : "";
+
   const systemPrompt =
     buildSystemPrompt(
       agent.id,
       session.challenger_mode,
       session.project_type as ProjectType,
       isFirstReply && firstName ? firstName : undefined,
-    ) + previousContext + webContext;
+    ) + previousContext + webContext + webFormatReminder;
 
   const llmMessages: LLMMessage[] = [
     { role: "system", content: systemPrompt },

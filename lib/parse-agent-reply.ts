@@ -30,6 +30,23 @@ function buildStopRegex(otherLabel: string): RegExp {
   return new RegExp(`\\n${DECO}*${otherLabel}`, "i");
 }
 
+// Repère la 1re ligne qui EST un titre de section (LIVRABLES/CHALLENGES), seule
+// sur sa ligne, modulo décorations markdown (`**`, `##`…) — exactement la même
+// tolérance que le parseur final. Sert à couper la prose au bon endroit.
+const SECTION_HEADING_LINE = new RegExp(
+  `^${DECO}*(?:LIVRABLES|CHALLENGES)${DECO}*:?${DECO}*$`,
+  "im",
+);
+
+// Renvoie le texte AVANT la 1re section structurée (ou tout le texte si aucune).
+// Utilisé pendant le streaming pour n'afficher que la prose : ainsi rien ne
+// « disparaît » quand parseAgentReply retire ces sections au message final.
+export function stripTrailingSections(text: string): string {
+  const m = text.match(SECTION_HEADING_LINE);
+  if (!m || m.index === undefined) return text;
+  return text.slice(0, m.index).trimEnd();
+}
+
 function stripBulletPrefix(line: string): string {
   // Enlève marqueurs de liste : "- ", "* ", "• ", "1. ", "1) ", "> ", "# ", etc.
   return line
@@ -68,12 +85,21 @@ export function parseAgentReply(raw: string): ParsedReply {
     const stopIdx =
       stopMatch && stopMatch.index !== undefined ? stopMatch.index : after.length;
     const block = after.slice(0, stopIdx);
-    const items = block
-      .split("\n")
-      .map(stripBulletPrefix)
-      // On filtre aussi les lignes qui sont juste des décorations markdown
-      // résiduelles (ex. "**", "---").
-      .filter((line) => line.length > 0 && /[A-Za-zÀ-ÿ0-9]/.test(line));
+    // On ne garde que la LISTE de puces. Dès qu'une ligne de prose (sans puce)
+    // suit les puces, on s'arrête : sinon le texte que le modèle écrit parfois
+    // APRÈS la liste (violation du format) devenait de faux livrables.
+    const items: string[] = [];
+    let sawBullet = false;
+    for (const line of block.split("\n")) {
+      const isBullet = /^\s*(?:[-*•‣–]|\d+[.)])\s+/.test(line);
+      const cleaned = stripBulletPrefix(line);
+      // Ligne vide ou pure décoration markdown ("**", "---") : on ignore.
+      if (!cleaned || !/[A-Za-zÀ-ÿ0-9]/.test(cleaned)) continue;
+      // Prose après les puces → fin de la section structurée.
+      if (sawBullet && !isBullet) break;
+      if (isBullet) sawBullet = true;
+      items.push(cleaned);
+    }
     return { items, start };
   };
 
