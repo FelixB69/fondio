@@ -106,6 +106,8 @@ export interface Task {
   content: string;
   status: TaskStatus;
   priority: TaskPriority;
+  // Date de début planifiée "YYYY-MM-DD" (type SQL `date`), ou null.
+  start_date: string | null;
   // Échéance au format "YYYY-MM-DD" (type SQL `date`), ou null si aucune.
   due_date: string | null;
   source_agent_id: AgentId | null;

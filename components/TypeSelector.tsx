@@ -5,7 +5,13 @@ import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
 
-export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => void }) {
+export function TypeSelector({
+  onSelect,
+  onBack,
+}: {
+  onSelect: (type: ProjectType) => void;
+  onBack?: () => void;
+}) {
   const isMobile = useIsMobile();
   return (
     <div
@@ -19,6 +25,27 @@ export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => vo
         overflowY: "auto",
       }}
     >
+      {onBack && (
+        <button
+          onClick={onBack}
+          style={{
+            alignSelf: "flex-start",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            color: C.textSub,
+            fontSize: 13,
+            marginBottom: 18,
+            fontFamily: "inherit",
+            padding: 0,
+          }}
+        >
+          <Icon name="arrowLeft" size={14} color={C.textSub} /> Retour
+        </button>
+      )}
       <div style={{ width: "100%", maxWidth: 720, margin: "auto" }}>
         <div style={{ textAlign: "center", marginBottom: isMobile ? 24 : 36 }}>
           <div
@@ -44,10 +71,10 @@ export function TypeSelector({ onSelect }: { onSelect: (type: ProjectType) => vo
               letterSpacing: "-0.03em",
             }}
           >
-            Sur quoi tu veux qu'on bosse ?
+            Sur quoi voulez-vous qu'on travaille ?
           </h1>
           <p style={{ margin: 0, color: C.textSub, fontSize: 14.5, lineHeight: 1.55 }}>
-Choisis le contexte de ton projet pour te proposer les meilleurs agents disponibles.          </p>
+Choisissez le contexte de votre projet pour vous proposer les meilleurs agents disponibles.          </p>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>

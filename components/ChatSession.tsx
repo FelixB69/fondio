@@ -315,6 +315,7 @@ interface ChatSessionProps {
   initialChallenger: boolean;
   onBack: () => void;
   onTitleChange?: (title: string) => void;
+  onLinkProject?: () => void;
 }
 
 function formatTs(iso: string): string {
@@ -344,7 +345,7 @@ function ProviderBadge({
         title={
           isCloud
             ? "Ollama local indisponible — bascule automatique sur l'API Mistral (EU)."
-            : "Réponse générée par ton modèle Ollama local."
+            : "Réponse générée par votre modèle Ollama local."
         }
         style={{
           display: "inline-flex",
@@ -371,7 +372,7 @@ function ProviderBadge({
       title={
         isCloud
           ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
-          : "Réponse générée par ton modèle Ollama local."
+          : "Réponse générée par votre modèle Ollama local."
       }
       style={{
         display: "inline-flex",
@@ -816,6 +817,7 @@ export function ChatSession({
   initialChallenger,
   onBack,
   onTitleChange,
+  onLinkProject,
 }: ChatSessionProps) {
   const isMobile = useIsMobile();
   const supabase = createClient();
@@ -1117,9 +1119,34 @@ export function ChatSession({
           </span>
         )}
 
+        {onLinkProject && (
+          <button
+            onClick={onLinkProject}
+            title={projectId ? "Changer le projet rattaché" : "Rattacher cette session à un projet"}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: isMobile ? 0 : 6,
+              border: `1.5px solid ${projectId ? C.navy : C.border}`,
+              background: projectId ? C.navyLight : C.white,
+              color: projectId ? C.navy : C.textSub,
+              borderRadius: 100,
+              padding: isMobile ? "6px" : "5px 11px 5px 9px",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "inherit",
+              transition: "all 0.15s",
+            }}
+          >
+            <Icon name="folder" size={12} color={projectId ? C.navy : C.textSub} />
+            {!isMobile && (projectId ? "Projet lié" : "Rattacher à un projet")}
+          </button>
+        )}
+
         <button
           onClick={toggleChallenger}
-          title="Pousse l'agent à challenger tes hypothèses"
+          title="Pousse l'agent à challenger vos hypothèses"
           style={{
             display: "flex",
             alignItems: "center",
@@ -1375,9 +1402,9 @@ export function ChatSession({
               lineHeight: 1.6,
             }}
           >
-            Dis à <strong style={{ color: agent.color }}>{agent.firstName}</strong> sur quoi tu veux travailler aujourd'hui.
+            Dites à <strong style={{ color: agent.color }}>{agent.firstName}</strong> sur quoi vous voulez travailler aujourd'hui.
             <br />
-            Plus tu donnes de contexte, plus la session sera utile.
+            Plus vous donnez de contexte, plus la session sera utile.
           </div>
         )}
         {displayMessages.map((m, i) => (
@@ -1524,7 +1551,7 @@ export function ChatSession({
                 });
               }
             }}
-            placeholder={`Pose ta question à ${agent.firstName}…`}
+            placeholder={`Posez votre question à ${agent.firstName}…`}
             rows={1}
             style={{
               flex: 1,

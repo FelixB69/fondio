@@ -213,7 +213,7 @@ function ProviderBadge({
       title={
         isCloud
           ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
-          : "Réponse générée par ton modèle Ollama local."
+          : "Réponse générée par votre modèle Ollama local."
       }
       style={{
         display: "inline-flex",
@@ -716,7 +716,7 @@ export function MultiAgentSession({
               <span style={{ fontSize: 20, color: C.textMute }}>→</span>
               <Icon name="sparkles" size={28} color={SYNTHESIS_META.color} />
             </div>
-            Pose ta question au panel. Les agents répondront chacun depuis leur angle, se challengeront mutuellement, puis une synthèse consolidera leurs avis.
+            Posez votre question au panel. Les agents répondront chacun depuis leur angle, se challengeront mutuellement, puis une synthèse consolidera leurs avis.
           </div>
         )}
 
@@ -862,7 +862,7 @@ export function MultiAgentSession({
                 handleSend();
               }
             }}
-            placeholder={`Pose ta question au panel (${panelAgentIds.length} agents + synthèse)…`}
+            placeholder={`Posez votre question au panel (${panelAgentIds.length} agents + synthèse)…`}
             rows={1}
             disabled={isLoading}
             style={{

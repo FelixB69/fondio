@@ -6,7 +6,7 @@ import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
 
-export type SidebarView = "chat" | "library" | "tasks" | "projects";
+export type SidebarView = "chat" | "library" | "tasks" | "agenda" | "projects";
 
 export interface SessionListItem {
   id: string;
@@ -223,6 +223,12 @@ export function Sidebar({
           active={currentView === "tasks"}
           onClick={() => onNavigate("tasks")}
           badge={taskOpenCount}
+        />
+        <NavItem
+          icon="clock"
+          label="Agenda"
+          active={currentView === "agenda"}
+          onClick={() => onNavigate("agenda")}
         />
       </div>
 

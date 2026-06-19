@@ -91,12 +91,12 @@ export function AgentSelector({
               letterSpacing: "-0.03em",
             }}
           >
-            Choisis {isPanelMode ? "tes agents pour le panel" : "ton agent conseiller"}
+            Choisissez {isPanelMode ? "vos agents pour le panel" : "votre agent conseiller"}
           </h1>
           <p style={{ margin: 0, color: C.textSub, fontSize: 14 }}>
             {isPanelMode
-              ? "Sélectionne 2 à 4 agents — ils débattront et se challengeront mutuellement."
-              : "Chaque agent a sa spécialité et son style. Tu peux en changer à tout moment."}
+              ? "Sélectionnez 2 à 4 agents — ils débattront et se challengeront mutuellement."
+              : "Chaque agent a sa spécialité et son style. Vous pouvez en changer à tout moment."}
           </p>
         </div>
 
@@ -137,7 +137,7 @@ export function AgentSelector({
             <div style={{ fontSize: 12, color: C.textSub }}>
               {isPanelMode
                 ? "Les agents se parlent et se challengent · Synthèse à la fin"
-                : "Un agent dédié à ta session"}
+                : "Un agent dédié à votre session"}
             </div>
           </div>
           <button

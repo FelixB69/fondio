@@ -45,7 +45,7 @@ interface TaskAggRow {
   session_id: string | null;
 }
 
-interface NewProjectInput {
+export interface NewProjectInput {
   name: string;
   icon: string;
   color: string;
@@ -195,7 +195,7 @@ export function ProjectsScreen({
           </button>
         </div>
         <p style={{ margin: "0 0 4px", fontSize: 13, color: C.textSub }}>
-          Regroupe tes sessions sous un projet et suis ton avancée par paliers.
+          Regroupez vos sessions sous un projet et suivez votre avancée par paliers.
         </p>
       </div>
 
@@ -217,7 +217,7 @@ export function ProjectsScreen({
             }}
           >
             Pas encore de projet.<br />
-            Crée-en un pour suivre ta progression : {STAGES.map((s) => s.name).join(" → ")}.
+            Créez-en un pour suivre votre progression : {STAGES.map((s) => s.name).join(" → ")}.
           </div>
         )}
 
@@ -624,7 +624,7 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function NewProjectModal({
+export function NewProjectModal({
   onClose,
   onCreate,
 }: {

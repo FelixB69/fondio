@@ -6,48 +6,20 @@ import { C } from "@/lib/design-tokens";
 import { computeStats, Project, ProjectStats, STAGES, StageId } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
+import {
+  compareTasks,
+  dueDateMeta,
+  FILTERS,
+  filterCounts,
+  matchesFilter,
+  NEXT_STATUS,
+  PRIORITY_META,
+  STATUS_META,
+  STATUS_ORDER,
+  TaskFilter,
+} from "@/lib/tasks";
 import { Icon, IconName } from "./Icon";
-
-const STATUS_META: Record<TaskStatus, { label: string; color: string; bg: string }> = {
-  todo: { label: "À faire", color: C.navy, bg: C.navyLight },
-  doing: { label: "En cours", color: "#D97706", bg: "#FFFBEB" },
-  done: { label: "Fait", color: "#0E9F88", bg: "#EDFAF7" },
-};
-
-const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
-  todo: "doing",
-  doing: "done",
-  done: "todo",
-};
-
-// Métadonnées d'affichage par priorité. `normal` = null → aucun badge (réduit le bruit).
-const PRIORITY_META: Record<TaskPriority, { label: string; color: string; bg: string } | null> = {
-  low: { label: "Basse", color: C.textMute, bg: C.bg },
-  normal: null,
-  high: { label: "Haute", color: "#DC2626", bg: "#FEF2F2" },
-};
-
-// Rang de tri : plus petit = plus haut dans la liste.
-const PRIORITY_RANK: Record<TaskPriority, number> = { high: 0, normal: 1, low: 2 };
-
-// Ordre de tri d'une colonne : échéance (datées avant non datées, plus proche
-// d'abord → retards en haut) → priorité → création la plus récente.
-// due_date est une chaîne "YYYY-MM-DD" : la comparaison alphabétique suffit.
-function compareTasks(a: Task, b: Task): number {
-  if (a.due_date && b.due_date) {
-    if (a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1;
-  } else if (a.due_date) {
-    return -1;
-  } else if (b.due_date) {
-    return 1;
-  }
-  if (PRIORITY_RANK[a.priority] !== PRIORITY_RANK[b.priority]) {
-    return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
-  }
-  return a.created_at < b.created_at ? 1 : -1;
-}
-
-const STATUS_ORDER: TaskStatus[] = ["todo", "doing", "done"];
+import { Badge, EditableContent, FilterChips, TaskControls } from "./TaskBits";
 
 type ViewMode = "list" | "kanban";
 
@@ -80,6 +52,7 @@ export function ProjectDetailScreen({
   const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState("");
   const [view, setView] = useState<ViewMode>(isMobile ? "list" : "kanban");
+  const [filter, setFilter] = useState<TaskFilter>("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,7 +64,7 @@ export function ProjectDetailScreen({
         .single(),
       supabase
         .from("tasks")
-        .select("id, session_id, project_id, content, status, priority, due_date, source_agent_id, created_at, completed_at")
+        .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
         .eq("project_id", projectId)
         .order("created_at", { ascending: false }),
       supabase
@@ -111,22 +84,31 @@ export function ProjectDetailScreen({
     load();
   }, [load]);
 
+  const visibleTasks = useMemo(() => tasks.filter((t) => matchesFilter(t, filter)), [tasks, filter]);
+
   const grouped = useMemo(() => {
     const g: Record<TaskStatus, Task[]> = { todo: [], doing: [], done: [] };
-    for (const t of tasks) g[t.status].push(t);
+    for (const t of visibleTasks) g[t.status].push(t);
     for (const status of STATUS_ORDER) g[status].sort(compareTasks);
     return g;
-  }, [tasks]);
+  }, [visibleTasks]);
+
+  // Compteurs des chips — sur l'ensemble complet, indépendamment du filtre actif.
+  const counts = useMemo(() => filterCounts(tasks), [tasks]);
+
+  // doneCount / progress / stats sont calculés sur TOUTES les tâches (pas le
+  // sous-ensemble filtré) pour rester stables quand on change de filtre.
+  const doneCount = useMemo(() => tasks.filter((t) => t.status === "done").length, [tasks]);
 
   const progress = useMemo(() => {
     if (tasks.length === 0) return 0;
-    return Math.round((grouped.done.length / tasks.length) * 100);
-  }, [tasks, grouped.done]);
+    return Math.round((doneCount / tasks.length) * 100);
+  }, [tasks, doneCount]);
 
   const stats: ProjectStats | null = useMemo(() => {
     if (!project) return null;
-    return computeStats(sessions, grouped.done.length);
-  }, [project, sessions, grouped.done.length]);
+    return computeStats(sessions, doneCount);
+  }, [project, sessions, doneCount]);
 
   const updateStage = async (stage: StageId) => {
     await supabase.from("projects").update({ stage }).eq("id", projectId);
@@ -143,7 +125,7 @@ export function ProjectDetailScreen({
     const { data, error } = await supabase
       .from("tasks")
       .insert({ user_id: user.id, project_id: projectId, content: text, status: "todo" })
-      .select("id, session_id, project_id, content, status, priority, due_date, source_agent_id, created_at, completed_at")
+      .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
       .single();
     if (error || !data) return;
     setTasks((p) => [data as Task, ...p]);
@@ -179,6 +161,11 @@ export function ProjectDetailScreen({
   const setDueDate = async (task: Task, due_date: string | null) => {
     setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, due_date } : t)));
     await supabase.from("tasks").update({ due_date }).eq("id", task.id);
+  };
+
+  const setStartDate = async (task: Task, start_date: string | null) => {
+    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, start_date } : t)));
+    await supabase.from("tasks").update({ start_date }).eq("id", task.id);
   };
 
   const setContent = async (task: Task, content: string) => {
@@ -457,6 +444,13 @@ export function ProjectDetailScreen({
 
               <ViewToggle view={view} onChange={setView} />
             </div>
+
+            {/* Barre de filtres */}
+            {tasks.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <FilterChips filters={FILTERS} active={filter} counts={counts} onChange={setFilter} />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -545,6 +539,7 @@ export function ProjectDetailScreen({
                       onSetStatus={(s) => setStatus(task, s)}
                       onSetPriority={(p) => setPriority(task, p)}
                       onSetDue={(d) => setDueDate(task, d)}
+                      onSetStart={(d) => setStartDate(task, d)}
                       onSetContent={(c) => setContent(task, c)}
                       onDelete={() => removeTask(task)}
                       onOpenSession={onOpenSession}
@@ -597,6 +592,7 @@ export function ProjectDetailScreen({
                         onSetStatus={(s) => setStatus(task, s)}
                         onSetPriority={(p) => setPriority(task, p)}
                         onSetDue={(d) => setDueDate(task, d)}
+                        onSetStart={(d) => setStartDate(task, d)}
                         onSetContent={(c) => setContent(task, c)}
                         onDelete={() => removeTask(task)}
                         onOpenSession={onOpenSession}
@@ -752,56 +748,12 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode
   );
 }
 
-// Contrôles d'édition partagés (priorité + échéance), réutilisés par carte et ligne.
-function TaskControls({
-  task,
-  onSetPriority,
-  onSetDue,
-}: {
-  task: Task;
-  onSetPriority: (p: TaskPriority) => void;
-  onSetDue: (d: string | null) => void;
-}) {
-  const ctrlStyle = {
-    background: C.white,
-    color: C.textSub,
-    border: `1px solid ${C.border}`,
-    borderRadius: 6,
-    padding: "3px 6px",
-    fontSize: 11,
-    fontWeight: 600,
-    fontFamily: "inherit",
-    cursor: "pointer",
-  } as const;
-  return (
-    <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-      <select
-        value={task.priority}
-        onChange={(e) => onSetPriority(e.target.value as TaskPriority)}
-        title="Priorité"
-        style={ctrlStyle}
-      >
-        <option value="low">Basse</option>
-        <option value="normal">Normale</option>
-        <option value="high">Haute</option>
-      </select>
-      {/* value="" quand pas d'échéance ; l'input renvoie "" si vidé → on remet null. */}
-      <input
-        type="date"
-        value={task.due_date ?? ""}
-        onChange={(e) => onSetDue(e.target.value || null)}
-        title="Échéance"
-        style={{ ...ctrlStyle, color: task.due_date ? C.text : C.textMute }}
-      />
-    </div>
-  );
-}
-
 function TaskCard({
   task,
   onCycle,
   onSetPriority,
   onSetDue,
+  onSetStart,
   onSetContent,
   onDelete,
   onOpenSession,
@@ -811,6 +763,7 @@ function TaskCard({
   onSetStatus: (s: TaskStatus) => void;
   onSetPriority: (p: TaskPriority) => void;
   onSetDue: (d: string | null) => void;
+  onSetStart: (d: string | null) => void;
   onSetContent: (c: string) => void;
   onDelete: () => void;
   onOpenSession: (id: string) => void;
@@ -871,7 +824,7 @@ function TaskCard({
           )}
         </div>
       )}
-      <TaskControls task={task} onSetPriority={onSetPriority} onSetDue={onSetDue} />
+      <TaskControls task={task} onSetPriority={onSetPriority} onSetStart={onSetStart} onSetDue={onSetDue} />
       <div style={{ display: "flex", gap: 5 }}>
         <button
           onClick={onCycle}
@@ -933,6 +886,7 @@ function TaskRow({
   onSetStatus,
   onSetPriority,
   onSetDue,
+  onSetStart,
   onSetContent,
   onDelete,
   onOpenSession,
@@ -942,6 +896,7 @@ function TaskRow({
   onSetStatus: (s: TaskStatus) => void;
   onSetPriority: (p: TaskPriority) => void;
   onSetDue: (d: string | null) => void;
+  onSetStart: (d: string | null) => void;
   onSetContent: (c: string) => void;
   onDelete: () => void;
   onOpenSession: (id: string) => void;
@@ -1024,7 +979,7 @@ function TaskRow({
           </div>
         )}
       </div>
-      <TaskControls task={task} onSetPriority={onSetPriority} onSetDue={onSetDue} />
+      <TaskControls task={task} onSetPriority={onSetPriority} onSetStart={onSetStart} onSetDue={onSetDue} />
       <select
         value={status}
         onChange={(e) => onSetStatus(e.target.value as TaskStatus)}
@@ -1065,140 +1020,6 @@ function TaskRow({
       </button>
     </div>
   );
-}
-
-// Contenu de tâche éditable au clic. État local (editing + draft) : tant qu'on
-// n'édite pas, on affiche un div ; au clic on bascule en textarea. On sauvegarde
-// sur Entrée ou perte de focus, on annule sur Échap. Le parent n'est notifié
-// (onSave) que si le texte a réellement changé et n'est pas vide.
-function EditableContent({
-  task,
-  done,
-  fontSize,
-  onSave,
-}: {
-  task: Task;
-  done: boolean;
-  fontSize: number;
-  onSave: (content: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(task.content);
-
-  const startEdit = () => {
-    setDraft(task.content);
-    setEditing(true);
-  };
-  const commit = () => {
-    setEditing(false);
-    const text = draft.trim();
-    if (text && text !== task.content) onSave(text);
-    else setDraft(task.content);
-  };
-
-  if (editing) {
-    return (
-      <textarea
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            commit();
-          } else if (e.key === "Escape") {
-            setDraft(task.content);
-            setEditing(false);
-          }
-        }}
-        rows={2}
-        style={{
-          width: "100%",
-          boxSizing: "border-box",
-          fontSize,
-          color: C.text,
-          lineHeight: 1.45,
-          fontFamily: "inherit",
-          border: `1px solid ${C.navyMid}`,
-          borderRadius: 6,
-          padding: "5px 7px",
-          outline: "none",
-          resize: "vertical",
-          background: C.white,
-        }}
-      />
-    );
-  }
-
-  return (
-    <div
-      onClick={startEdit}
-      title="Cliquer pour modifier"
-      style={{
-        fontSize,
-        color: C.text,
-        lineHeight: 1.45,
-        textDecoration: done ? "line-through" : "none",
-        opacity: done ? 0.7 : 1,
-        cursor: "text",
-        whiteSpace: "pre-wrap",
-      }}
-    >
-      {task.content}
-    </div>
-  );
-}
-
-// Petit badge générique réutilisé pour priorité + échéance.
-function Badge({ label, color, bg, icon }: { label: string; color: string; bg: string; icon?: IconName }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 3,
-        background: bg,
-        color,
-        border: `1px solid ${color}28`,
-        borderRadius: 5,
-        padding: "2px 6px",
-        fontSize: 10,
-        fontWeight: 700,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {icon && <Icon name={icon} size={9} color={color} />}
-      {label}
-    </span>
-  );
-}
-
-// Transforme une échéance "YYYY-MM-DD" en label + couleur selon l'urgence.
-// On parse en date LOCALE (pas UTC) pour éviter les décalages de fuseau, et on
-// compare au jour d'aujourd'hui à minuit. Une tâche `done` n'est jamais "en retard".
-function dueDateMeta(dueDate: string, done: boolean): { label: string; color: string; bg: string } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const [y, m, d] = dueDate.split("-").map(Number);
-  const due = new Date(y, m - 1, d);
-  const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
-
-  const short = due.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-
-  // Une tâche faite n'est jamais "en retard" : on affiche juste la date, en gris.
-  if (done) return { label: short, color: C.textMute, bg: C.bg };
-
-  let label: string;
-  if (diff === 0) label = "Aujourd'hui";
-  else if (diff === 1) label = "Demain";
-  else if (diff === -1) label = "Hier";
-  else if (diff < 0) label = `Retard · ${short}`;
-  else label = short;
-
-  if (diff < 0) return { label, color: "#DC2626", bg: "#FEF2F2" };
-  if (diff <= 1) return { label, color: "#D97706", bg: "#FFFBEB" };
-  return { label, color: C.textSub, bg: C.bg };
 }
 
 function formatRelative(iso: string): string {

@@ -188,7 +188,7 @@ export function LibraryScreen({
           </h1>
         </div>
         <p style={{ margin: "0 0 14px", fontSize: 13, color: C.textSub }}>
-          Tous les livrables produits par tes agents, regroupés par session.
+          Tous les livrables produits par vos agents, regroupés par session.
         </p>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
