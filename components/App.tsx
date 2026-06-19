@@ -10,10 +10,12 @@ import { AgentSelector } from "./AgentSelector";
 import { AuthScreen } from "./AuthScreen";
 import { ChatSession } from "./ChatSession";
 import { Icon } from "./Icon";
+import { LandingScreen } from "./LandingScreen";
 import { LibraryScreen } from "./LibraryScreen";
 import { LinkSessionModal } from "./LinkSessionModal";
 import { MultiAgentSession } from "./MultiAgentSession";
 import { AgendaScreen } from "./AgendaScreen";
+import { hasSeenOnboarding, OnboardingTour } from "./OnboardingTour";
 import { ProjectDetailScreen } from "./ProjectDetailScreen";
 import { ProjectPickerScreen } from "./ProjectPickerScreen";
 import { ProjectsScreen } from "./ProjectsScreen";
@@ -22,6 +24,7 @@ import { TasksScreen } from "./TasksScreen";
 import { TypeSelector } from "./TypeSelector";
 
 type Screen =
+  | "landing"
   | "auth"
   | "loading"
   | "project-picker"
@@ -63,6 +66,8 @@ export function App() {
   const [taskOpenCount, setTaskOpenCount] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [accountBackScreen, setAccountBackScreen] = useState<Screen>("project-picker");
+  const [authInitialView, setAuthInitialView] = useState<"login" | "signup">("login");
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   const loadSessions = useCallback(async () => {
     const { data } = await supabase
@@ -98,18 +103,19 @@ export function App() {
       } = await supabase.auth.getSession();
       if (cancelled) return;
       if (!session) {
-        setScreen("auth");
+        setScreen("landing");
         return;
       }
       setUserEmail(session.user.email ?? undefined);
       await Promise.all([loadSessions(), loadArchivedSessions(), loadTaskCount()]);
       if (cancelled) return;
       setScreen("project-picker");
+      if (!hasSeenOnboarding()) setShowOnboarding(true);
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
       if (!session) {
-        setScreen("auth");
+        setScreen("landing");
         setSessions([]);
         setArchivedSessions([]);
         setActiveSession(null);
@@ -275,9 +281,26 @@ export function App() {
     return <div style={{ width: "100vw", height: "100dvh", background: "#F6F8FC" }} />;
   }
 
+  if (screen === "landing") {
+    return (
+      <LandingScreen
+        onLogin={() => {
+          setAuthInitialView("login");
+          setScreen("auth");
+        }}
+        onSignup={() => {
+          setAuthInitialView("signup");
+          setScreen("auth");
+        }}
+      />
+    );
+  }
+
   if (screen === "auth") {
     return (
       <AuthScreen
+        initialView={authInitialView}
+        onBack={() => setScreen("landing")}
         onAuthenticated={async () => {
           const {
             data: { session },
@@ -285,6 +308,7 @@ export function App() {
           setUserEmail(session?.user.email ?? undefined);
           await Promise.all([loadSessions(), loadArchivedSessions(), loadTaskCount()]);
           setScreen("project-picker");
+          if (!hasSeenOnboarding()) setShowOnboarding(true);
         }}
       />
     );
@@ -510,6 +534,8 @@ export function App() {
           }}
         />
       )}
+
+      {showOnboarding && <OnboardingTour onDone={() => setShowOnboarding(false)} />}
     </div>
   );
 }

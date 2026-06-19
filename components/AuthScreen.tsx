@@ -47,7 +47,7 @@ function AuthBrand() {
       />
 
       <div style={{ marginBottom: 28, position: "relative" }}>
-        <img src="/fondio-logo.png" alt="Fondio" style={{ height: 44, width: "auto", display: "block" }} />
+        <img src="/fondio-logo.png" alt="Fondio" style={{ height: 68, width: "auto", display: "block" }} />
       </div>
 
       <div style={{ position: "relative", marginBottom: 22 }}>
@@ -185,8 +185,16 @@ function mapAuthError(msg: string): string {
   return msg;
 }
 
-export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
-  const [view, setView] = useState<AuthView>("login");
+export function AuthScreen({
+  onAuthenticated,
+  initialView = "login",
+  onBack,
+}: {
+  onAuthenticated: () => void;
+  initialView?: "login" | "signup";
+  onBack?: () => void;
+}) {
+  const [view, setView] = useState<AuthView>(initialView);
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", password: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -536,7 +544,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
             flexShrink: 0,
           }}
         >
-          <img src="/fondio-logo.png" alt="Fondio" style={{ height: 44, width: "auto", display: "block" }} />
+          <img src="/fondio-logo.png" alt="Fondio" style={{ height: 68, width: "auto", display: "block" }} />
           {(view === "login" || view === "signup") && (
             <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.55)", textAlign: "center", lineHeight: 1.5 }}>
               Vos conseillers IA spécialisés, en local.
@@ -555,6 +563,26 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
             animation: "fndFadeIn 0.22s ease",
           }}
         >
+          {onBack && (view === "login" || view === "signup") && (
+            <button
+              onClick={onBack}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: C.textSub,
+                fontSize: 13,
+                marginBottom: 20,
+                padding: 0,
+                fontFamily: "inherit",
+              }}
+            >
+              <LuArrowLeft size={14} color={C.textSub} /> Retour
+            </button>
+          )}
           {content[view]()}
         </div>
       </div>
@@ -576,6 +604,26 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
         }}
       >
         <div style={{ width: "100%", maxWidth: 420, animation: "fndFadeIn 0.22s ease" }}>
+          {onBack && (view === "login" || view === "signup") && (
+            <button
+              onClick={onBack}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: C.textSub,
+                fontSize: 13,
+                marginBottom: 20,
+                padding: 0,
+                fontFamily: "inherit",
+              }}
+            >
+              <LuArrowLeft size={14} color={C.textSub} /> Retour
+            </button>
+          )}
           {content[view]()}
         </div>
       </div>
