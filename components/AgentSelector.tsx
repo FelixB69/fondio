@@ -95,7 +95,7 @@ export function AgentSelector({
           </h1>
           <p style={{ margin: 0, color: C.textSub, fontSize: 14 }}>
             {isPanelMode
-              ? "Sélectionnez 2 à 4 agents — ils débattront et se challengeront mutuellement."
+              ? "Sélectionnez 2 à 4 agents. Ils débattront et se challengeront mutuellement."
               : "Chaque agent a sa spécialité et son style. Vous pouvez en changer à tout moment."}
           </p>
         </div>

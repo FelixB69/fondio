@@ -344,7 +344,7 @@ function ProviderBadge({
       <div
         title={
           isCloud
-            ? "Ollama local indisponible — bascule automatique sur l'API Mistral (EU)."
+            ? "Ollama local indisponible, bascule automatique sur l'API Mistral (EU)."
             : "Réponse générée par votre modèle Ollama local."
         }
         style={{
@@ -960,7 +960,7 @@ export function ChatSession({
           setPreferredProvider("cloud");
           setInput(trimmed);
           if (taRef.current) taRef.current.style.height = "auto";
-          setError("Ollama indisponible — bascule sur Cloud. Réessaie avec Entrée.");
+          setError("Ollama indisponible, bascule sur Cloud. Réessaie avec Entrée.");
         } else {
           setError(errMsg);
         }
@@ -1279,7 +1279,7 @@ export function ChatSession({
                   ? "Vérification d'Ollama…"
                   : ollamaAvailable
                   ? "Utiliser le modèle local (données privées)"
-                  : "Ollama indisponible — cliquer pour re-vérifier"
+                  : "Ollama indisponible, cliquer pour re-vérifier"
               }
               style={{
                 display: "flex",

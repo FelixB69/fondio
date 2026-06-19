@@ -8,9 +8,15 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Fondio — Agents IA Spécialisés",
+  title: "Fondio : agents IA conseillers pour vos projets perso et pro",
   description:
-    "Votre équipe d'agents IA spécialisés en immobilier et IT. Propulsée par Claude.",
+    "Fondio réunit des agents IA spécialisés (stratégie, finance, tech, marketing, coaching) pour vous accompagner sur vos projets personnels et professionnels, avec des livrables concrets à chaque session.",
+  openGraph: {
+    title: "Fondio : agents IA conseillers pour vos projets perso et pro",
+    description:
+      "Des agents IA spécialisés en stratégie, finance, tech, marketing et coaching pour avancer concrètement sur vos projets.",
+    locale: "fr_FR",
+  },
 };
 
 export default function RootLayout({

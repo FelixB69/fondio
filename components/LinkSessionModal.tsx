@@ -162,7 +162,7 @@ export function LinkSessionModal({
                 marginTop: 4,
               }}
             >
-              Pas encore de projet. Crée-en un depuis l'écran <b>Projets</b> dans la sidebar.
+              Pas encore de projet. Créez-en un depuis l'écran <b>Projets</b> dans la sidebar.
             </div>
           )}
 
