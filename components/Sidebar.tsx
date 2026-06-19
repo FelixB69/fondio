@@ -27,6 +27,7 @@ interface SidebarProps {
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
   onNavigate: (view: Exclude<SidebarView, "chat">) => void;
+  onOpenAccount: () => void;
   onSignOut: () => void;
   onArchiveSession: (id: string) => void;
   onRestoreSession: (id: string) => void;
@@ -121,6 +122,7 @@ export function Sidebar({
   onSelectSession,
   onNewSession,
   onNavigate,
+  onOpenAccount,
   onSignOut,
   onArchiveSession,
   onRestoreSession,
@@ -583,7 +585,9 @@ export function Sidebar({
       {/* User footer */}
       <div style={{ padding: "10px 10px 14px", borderTop: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "4px" }}>
-          <div
+          <button
+            onClick={onOpenAccount}
+            title="Gérer mon compte"
             style={{
               width: 30,
               height: 30,
@@ -593,26 +597,38 @@ export function Sidebar({
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
             }}
           >
             <span style={{ color: "white", fontWeight: 800, fontSize: 11 }}>
               {(userEmail?.[0] ?? "U").toUpperCase()}
             </span>
-          </div>
+          </button>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div
+            <button
+              onClick={onOpenAccount}
+              title={userEmail}
               style={{
+                background: "none",
+                border: "none",
+                padding: 0,
                 fontSize: 12.5,
                 color: C.text,
                 lineHeight: 1.2,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                display: "block",
+                width: "100%",
+                textAlign: "left",
               }}
-              title={userEmail}
             >
               {userEmail ?? "Utilisateur"}
-            </div>
+            </button>
             <button
               onClick={onSignOut}
               style={{
@@ -628,6 +644,22 @@ export function Sidebar({
               Se déconnecter
             </button>
           </div>
+          <button
+            onClick={onOpenAccount}
+            title="Gérer mon compte"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 5,
+              borderRadius: 6,
+              color: C.textMute,
+              display: "flex",
+              flexShrink: 0,
+            }}
+          >
+            <Icon name="settings" size={14} color={C.textMute} />
+          </button>
         </div>
       </div>
     </div>

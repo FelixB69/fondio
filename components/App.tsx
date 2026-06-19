@@ -5,6 +5,7 @@ import { AgentId, ChatMessage, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
+import { AccountScreen } from "./AccountScreen";
 import { AgentSelector } from "./AgentSelector";
 import { AuthScreen } from "./AuthScreen";
 import { ChatSession } from "./ChatSession";
@@ -31,7 +32,8 @@ type Screen =
   | "tasks"
   | "agenda"
   | "projects"
-  | "project-detail";
+  | "project-detail"
+  | "account";
 
 interface SessionFull {
   id: string;
@@ -60,6 +62,7 @@ export function App() {
   const [linkingSessionId, setLinkingSessionId] = useState<string | null>(null);
   const [taskOpenCount, setTaskOpenCount] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [accountBackScreen, setAccountBackScreen] = useState<Screen>("project-picker");
 
   const loadSessions = useCallback(async () => {
     const { data } = await supabase
@@ -376,6 +379,9 @@ export function App() {
         />
       );
     }
+    if (screen === "account") {
+      return <AccountScreen onBack={() => setScreen(accountBackScreen)} />;
+    }
     if (screen === "chat" && activeSession) {
       const panelIds = activeSession.panel_agent_ids;
       if (panelIds && panelIds.length > 1) {
@@ -437,6 +443,11 @@ export function App() {
           setSidebarOpen(false);
         }}
         onNavigate={(view) => { navigate(view); setSidebarOpen(false); }}
+        onOpenAccount={() => {
+          setAccountBackScreen(screen === "account" ? "project-picker" : screen);
+          setScreen("account");
+          setSidebarOpen(false);
+        }}
         onSignOut={handleSignOut}
         onArchiveSession={archiveSession}
         onRestoreSession={restoreSession}
