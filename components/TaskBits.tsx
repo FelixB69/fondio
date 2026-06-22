@@ -53,34 +53,63 @@ export function TaskControls({
     fontFamily: "inherit",
     cursor: "pointer",
   } as const;
+  // Champ pleine largeur : combiné à la grille `auto 1fr`, tous les contrôles
+  // s'alignent sur la même largeur (bords gauche + droite alignés).
+  const fieldStyle = { ...ctrlStyle, width: "100%", boxSizing: "border-box" } as const;
+  // Libellé de colonne. La colonne `auto` se cale sur le plus large (« Échéance »),
+  // donc les trois libellés sont alignés sans largeur fixe à maintenir.
+  const labelStyle = {
+    fontSize: 10,
+    fontWeight: 700,
+    color: C.textMute,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    whiteSpace: "nowrap",
+  } as const;
   return (
-    <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-      <select
-        value={task.priority}
-        onChange={(e) => onSetPriority(e.target.value as TaskPriority)}
-        title="Priorité"
-        style={ctrlStyle}
-      >
-        <option value="low">Basse</option>
-        <option value="normal">Normale</option>
-        <option value="high">Haute</option>
-      </select>
-      {/* Plage début → échéance. Les inputs renvoient "" si vidés → on remet null. */}
-      <input
-        type="date"
-        value={task.start_date ?? ""}
-        onChange={(e) => onSetStart(e.target.value || null)}
-        title="Début"
-        style={{ ...ctrlStyle, color: task.start_date ? C.text : C.textMute }}
-      />
-      <span style={{ color: C.textMute, fontSize: 11 }}>→</span>
-      <input
-        type="date"
-        value={task.due_date ?? ""}
-        onChange={(e) => onSetDue(e.target.value || null)}
-        title="Échéance"
-        style={{ ...ctrlStyle, color: task.due_date ? C.text : C.textMute }}
-      />
+    // Grille 2 colonnes : libellés / contrôles. `display:contents` sur chaque
+    // <label> fait participer ses 2 enfants directement à la grille parente, tout
+    // en gardant le clic-sur-libellé qui focalise le champ.
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "auto 1fr",
+        columnGap: 8,
+        rowGap: 5,
+        alignItems: "center",
+      }}
+    >
+      <label style={{ display: "contents" }}>
+        <span style={labelStyle}>Priorité</span>
+        <select
+          value={task.priority}
+          onChange={(e) => onSetPriority(e.target.value as TaskPriority)}
+          style={fieldStyle}
+        >
+          <option value="low">Basse</option>
+          <option value="normal">Normale</option>
+          <option value="high">Haute</option>
+        </select>
+      </label>
+      {/* Les inputs renvoient "" si vidés → on remet null. */}
+      <label style={{ display: "contents" }}>
+        <span style={labelStyle}>Début</span>
+        <input
+          type="date"
+          value={task.start_date ?? ""}
+          onChange={(e) => onSetStart(e.target.value || null)}
+          style={{ ...fieldStyle, color: task.start_date ? C.text : C.textMute }}
+        />
+      </label>
+      <label style={{ display: "contents" }}>
+        <span style={labelStyle}>Échéance</span>
+        <input
+          type="date"
+          value={task.due_date ?? ""}
+          onChange={(e) => onSetDue(e.target.value || null)}
+          style={{ ...fieldStyle, color: task.due_date ? C.text : C.textMute }}
+        />
+      </label>
     </div>
   );
 }
@@ -94,11 +123,15 @@ export function EditableContent({
   done,
   fontSize,
   onSave,
+  singleLine = false,
 }: {
   task: Task;
   done: boolean;
   fontSize: number;
   onSave: (content: string) => void;
+  // singleLine : tronque sur une ligne avec « … » (ex. colonne étroite de la
+  // timeline). Le texte complet reste accessible au survol (title).
+  singleLine?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.content);
@@ -152,7 +185,7 @@ export function EditableContent({
   return (
     <div
       onClick={startEdit}
-      title="Cliquer pour modifier"
+      title={singleLine ? task.content : "Cliquer pour modifier"}
       style={{
         fontSize,
         color: C.text,
@@ -160,7 +193,9 @@ export function EditableContent({
         textDecoration: done ? "line-through" : "none",
         opacity: done ? 0.7 : 1,
         cursor: "text",
-        whiteSpace: "pre-wrap",
+        ...(singleLine
+          ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }
+          : { whiteSpace: "pre-wrap" }),
       }}
     >
       {task.content}

@@ -43,6 +43,13 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
+// Parse une chaîne "YYYY-MM-DD" en Date LOCALE (minuit local). À utiliser
+// partout plutôt que `new Date(str)` qui interprète en UTC et décale le jour.
+export function parseYmd(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 export function todayStr(): string {
   return ymd(new Date());
 }
@@ -51,6 +58,46 @@ export function inDaysStr(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() + n);
   return ymd(d);
+}
+
+// Décale une date "YYYY-MM-DD" de n jours (n peut être négatif), renvoie "YYYY-MM-DD".
+export function addDaysYmd(s: string, n: number): string {
+  const d = parseYmd(s);
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+}
+
+// Nombre de jours entiers de `a` à `b` (b - a). Positif si b est après a.
+export function diffDaysYmd(a: string, b: string): number {
+  return Math.round((parseYmd(b).getTime() - parseYmd(a).getTime()) / 86400000);
+}
+
+// Liste inclusive des jours de `from` à `to` (axe de la timeline).
+export function eachDayYmd(from: string, to: string): string[] {
+  const days: string[] = [];
+  for (let cur = from; cur <= to; cur = addDaysYmd(cur, 1)) days.push(cur);
+  return days;
+}
+
+// Lundi (00:00 local) de la semaine contenant `s`, au format "YYYY-MM-DD".
+export function startOfWeekYmd(s: string): string {
+  const d = parseYmd(s);
+  // getDay() : 0 = dimanche … 6 = samedi. On veut reculer jusqu'au lundi.
+  const offset = (d.getDay() + 6) % 7;
+  return addDaysYmd(s, -offset);
+}
+
+// Plage affichable d'une tâche sur la timeline :
+//   - start_date + due_date → [start, end] (end >= start garanti)
+//   - une seule des deux dates → journée unique
+//   - aucune date → null (la tâche n'a pas sa place sur la timeline)
+export function taskBounds(task: Task): { start: string; end: string } | null {
+  const a = task.start_date;
+  const b = task.due_date;
+  if (a && b) return a <= b ? { start: a, end: b } : { start: b, end: a };
+  if (b) return { start: b, end: b };
+  if (a) return { start: a, end: a };
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,8 +163,7 @@ export function filterCounts(tasks: Task[]): Record<TaskFilter, number> {
 export function dueDateMeta(dueDate: string, done: boolean): { label: string; color: string; bg: string } {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const [y, m, d] = dueDate.split("-").map(Number);
-  const due = new Date(y, m - 1, d);
+  const due = parseYmd(dueDate);
   const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
 
   const short = due.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
@@ -160,4 +206,36 @@ export function agendaBucket(task: Task): AgendaBucket | null {
   if (task.due_date === today) return "today";
   if (task.due_date <= inDaysStr(7)) return "week";
   return "later";
+}
+
+// ---------------------------------------------------------------------------
+// Filtres de l'agenda : projet / agent / recherche texte / inclure les faites.
+// Partagé par la barre de filtres et les deux vues (timeline + liste).
+// ---------------------------------------------------------------------------
+
+export interface AgendaFilters {
+  query: string;
+  projectId: string | null; // null = tous les projets
+  agentId: string | null; // null = tous les agents
+  showDone: boolean; // false = on masque les tâches terminées
+}
+
+export const EMPTY_AGENDA_FILTERS: AgendaFilters = {
+  query: "",
+  projectId: null,
+  agentId: null,
+  showDone: false,
+};
+
+export function matchesAgenda(task: Task, f: AgendaFilters): boolean {
+  if (!f.showDone && task.status === "done") return false;
+  if (f.projectId && task.project_id !== f.projectId) return false;
+  if (f.agentId && task.source_agent_id !== f.agentId) return false;
+  const q = f.query.trim().toLowerCase();
+  if (q && !task.content.toLowerCase().includes(q)) return false;
+  return true;
+}
+
+export function hasActiveFilters(f: AgendaFilters): boolean {
+  return f.query.trim() !== "" || f.projectId !== null || f.agentId !== null || f.showDone;
 }

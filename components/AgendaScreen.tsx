@@ -5,17 +5,24 @@ import { AGENTS, AgentId, Task, TaskPriority } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
-import { agendaBucket, AgendaBucket, AGENDA_BUCKETS, compareTasks, dueDateMeta, PRIORITY_META } from "@/lib/tasks";
+import {
+  addDaysYmd,
+  AgendaBucket,
+  agendaBucket,
+  AGENDA_BUCKETS,
+  AgendaFilters,
+  compareTasks,
+  dueDateMeta,
+  EMPTY_AGENDA_FILTERS,
+  hasActiveFilters,
+  matchesAgenda,
+  PRIORITY_META,
+} from "@/lib/tasks";
+import { AgendaTimeline, ProjectLite } from "./AgendaTimeline";
 import { Icon, IconName } from "./Icon";
 import { Badge, EditableContent, TaskControls } from "./TaskBits";
 
-// Infos projet minimales affichées sur chaque tâche de l'agenda.
-interface ProjectLite {
-  id: string;
-  name: string;
-  icon: string | null;
-  color: string | null;
-}
+type AgendaView = "timeline" | "list";
 
 export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) => void }) {
   const isMobile = useIsMobile();
@@ -23,15 +30,16 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Record<string, ProjectLite>>({});
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<AgendaView>(isMobile ? "list" : "timeline");
+  const [filters, setFilters] = useState<AgendaFilters>(EMPTY_AGENDA_FILTERS);
 
   const load = useCallback(async () => {
     setLoading(true);
-    // On ne charge que les tâches non terminées : l'agenda regarde devant soi.
+    // On charge TOUTES les tâches (le toggle « terminées » et la timeline en ont besoin).
     const [tasksRes, projRes] = await Promise.all([
       supabase
         .from("tasks")
         .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
-        .neq("status", "done")
         .order("due_date", { ascending: true }),
       supabase.from("projects").select("id, name, icon, color"),
     ]);
@@ -46,48 +54,88 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
     load();
   }, [load]);
 
-  // Regroupement par horizon temporel, chaque bucket trié comme les autres écrans.
+  const filtered = useMemo(() => tasks.filter((t) => matchesAgenda(t, filters)), [tasks, filters]);
+
+  // Vue Liste : regroupement par horizon (les tâches « done » sortent via agendaBucket).
   const buckets = useMemo(() => {
     const b: Record<AgendaBucket, Task[]> = { overdue: [], today: [], week: [], later: [], nodate: [] };
-    for (const t of tasks) {
+    for (const t of filtered) {
       const id = agendaBucket(t);
       if (id) b[id].push(t);
     }
     for (const id of Object.keys(b) as AgendaBucket[]) b[id].sort(compareTasks);
     return b;
+  }, [filtered]);
+
+  // En-tête : compteurs sur l'ensemble (non filtré) pour rester stables.
+  const openTasks = useMemo(() => tasks.filter((t) => t.status !== "done"), [tasks]);
+  const overdueCount = useMemo(() => openTasks.filter((t) => agendaBucket(t) === "overdue").length, [openTasks]);
+  const todayCount = useMemo(() => openTasks.filter((t) => agendaBucket(t) === "today").length, [openTasks]);
+
+  // Options de filtre dérivées des tâches présentes.
+  const projectOptions = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of tasks) if (t.project_id) ids.add(t.project_id);
+    return [...ids].map((id) => projects[id]).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  }, [tasks, projects]);
+  const agentOptions = useMemo(() => {
+    const ids = new Set<AgentId>();
+    for (const t of tasks) if (t.source_agent_id) ids.add(t.source_agent_id);
+    return [...ids];
   }, [tasks]);
 
-  const total = tasks.length;
-  const overdueCount = buckets.overdue.length;
-  const todayCount = buckets.today.length;
+  // ---- Mutations (optimistic + persistance) ------------------------------
+  const patch = (id: string, fields: Partial<Task>) =>
+    setTasks((p) => p.map((t) => (t.id === id ? { ...t, ...fields } : t)));
 
-  // Marquer fait : la tâche quitte l'agenda (agendaBucket renvoie null pour done).
   const complete = async (task: Task) => {
     const completed_at = new Date().toISOString();
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, status: "done", completed_at } : t)));
+    patch(task.id, { status: "done", completed_at });
     await supabase.from("tasks").update({ status: "done", completed_at }).eq("id", task.id);
   };
 
   const setPriority = async (task: Task, priority: TaskPriority) => {
     if (task.priority === priority) return;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, priority } : t)));
+    patch(task.id, { priority });
     await supabase.from("tasks").update({ priority }).eq("id", task.id);
   };
 
   const setDueDate = async (task: Task, due_date: string | null) => {
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, due_date } : t)));
+    patch(task.id, { due_date });
     await supabase.from("tasks").update({ due_date }).eq("id", task.id);
   };
 
   const setStartDate = async (task: Task, start_date: string | null) => {
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, start_date } : t)));
+    patch(task.id, { start_date });
     await supabase.from("tasks").update({ start_date }).eq("id", task.id);
   };
 
   const setContent = async (task: Task, content: string) => {
     if (content === task.content) return;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, content } : t)));
+    patch(task.id, { content });
     await supabase.from("tasks").update({ content }).eq("id", task.id);
+  };
+
+  // Décale start ET due (celles présentes) du même nombre de jours — drag de barre.
+  const shiftDates = async (task: Task, deltaDays: number) => {
+    const start_date = task.start_date ? addDaysYmd(task.start_date, deltaDays) : null;
+    const due_date = task.due_date ? addDaysYmd(task.due_date, deltaDays) : null;
+    patch(task.id, { start_date, due_date });
+    await supabase.from("tasks").update({ start_date, due_date }).eq("id", task.id);
+  };
+
+  const addTask = async (input: { content: string; due_date: string; project_id: string | null }) => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({ user_id: user.id, content: input.content, status: "todo", due_date: input.due_date, project_id: input.project_id })
+      .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
+      .single();
+    if (error || !data) return;
+    setTasks((p) => [data as Task, ...p]);
   };
 
   return (
@@ -102,18 +150,13 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
       }}
     >
       {/* Header */}
-      <div
-        style={{
-          padding: isMobile ? "14px 16px 12px" : "20px 28px 16px",
-          background: C.white,
-          borderBottom: `1px solid ${C.border}`,
-        }}
-      >
+      <div style={{ padding: isMobile ? "14px 16px 12px" : "20px 28px 16px", background: C.white, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
           <Icon name="clock" size={20} color={C.navy} />
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: C.text, letterSpacing: "-0.02em" }}>
-            Agenda
-          </h1>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: C.text, letterSpacing: "-0.02em" }}>Agenda</h1>
+          <div style={{ marginLeft: "auto" }}>
+            <ViewToggle view={view} onChange={setView} />
+          </div>
         </div>
         <p style={{ margin: 0, fontSize: 13, color: C.textSub }}>
           {overdueCount > 0 ? (
@@ -122,32 +165,73 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
               {" · "}
             </>
           ) : null}
-          {todayCount > 0 ? <span style={{ fontWeight: 600 }}>{todayCount} aujourd'hui</span> : "Vos tâches à venir, tous projets confondus."}
+          {todayCount > 0 ? <span style={{ fontWeight: 600 }}>{todayCount} aujourd'hui</span> : "Planifiez vos tâches, tous projets confondus."}
         </p>
+
+        {/* Barre de filtres */}
+        {!loading && tasks.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
+            <SearchInput value={filters.query} onChange={(query) => setFilters((f) => ({ ...f, query }))} />
+            <FilterSelect
+              value={filters.projectId ?? ""}
+              onChange={(v) => setFilters((f) => ({ ...f, projectId: v || null }))}
+              placeholder="Tous les projets"
+              options={projectOptions.map((p) => ({ value: p.id, label: p.name }))}
+            />
+            {agentOptions.length > 0 && (
+              <FilterSelect
+                value={filters.agentId ?? ""}
+                onChange={(v) => setFilters((f) => ({ ...f, agentId: v || null }))}
+                placeholder="Tous les agents"
+                options={agentOptions.map((id) => ({ value: id, label: AGENTS[id]?.name ?? id }))}
+              />
+            )}
+            <ToggleChip
+              active={filters.showDone}
+              label="Terminées"
+              icon="check"
+              onClick={() => setFilters((f) => ({ ...f, showDone: !f.showDone }))}
+            />
+            {hasActiveFilters(filters) && (
+              <button
+                onClick={() => setFilters(EMPTY_AGENDA_FILTERS)}
+                style={{ background: "none", border: "none", color: C.textSub, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                <Icon name="close" size={11} color={C.textSub} />
+                Réinitialiser
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Body */}
       <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px 12px 24px" : "18px 28px 32px" }}>
         {loading && <div style={{ color: C.textMute, fontSize: 13 }}>Chargement…</div>}
 
-        {!loading && total === 0 && (
-          <div
-            style={{
-              marginTop: 60,
-              textAlign: "center",
-              color: C.textMute,
-              fontSize: 14,
-              maxWidth: 380,
-              marginLeft: "auto",
-              marginRight: "auto",
-              lineHeight: 1.6,
-            }}
-          >
-            Rien à l'agenda. Toutes vos tâches sont terminées ou vous n'en avez pas encore.
-          </div>
+        {!loading && tasks.length === 0 && (
+          <EmptyState text="Rien à l'agenda. Créez une tâche depuis l'écran Tâches, un projet, ou convertissez un livrable depuis le chat." />
         )}
 
-        {!loading && total > 0 && (
+        {!loading && tasks.length > 0 && filtered.length === 0 && (
+          <EmptyState text="Aucune tâche ne correspond à ces filtres." />
+        )}
+
+        {!loading && filtered.length > 0 && view === "timeline" && (
+          <AgendaTimeline
+            tasks={filtered}
+            projects={projects}
+            onShiftDates={shiftDates}
+            onSetStart={setStartDate}
+            onSetDue={setDueDate}
+            onSetContent={setContent}
+            onComplete={complete}
+            onAddTask={addTask}
+            onOpenSession={onOpenSession}
+          />
+        )}
+
+        {!loading && filtered.length > 0 && view === "list" && (
           <div style={{ maxWidth: 720, display: "flex", flexDirection: "column", gap: 22 }}>
             {AGENDA_BUCKETS.map((bucket) => {
               const items = buckets[bucket.id];
@@ -196,6 +280,133 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
   );
 }
 
+// --------------------------------------------------------------------------
+// Briques d'UI locales
+// --------------------------------------------------------------------------
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div style={{ marginTop: 60, textAlign: "center", color: C.textMute, fontSize: 14, maxWidth: 380, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
+      {text}
+    </div>
+  );
+}
+
+function ViewToggle({ view, onChange }: { view: AgendaView; onChange: (v: AgendaView) => void }) {
+  const buttons: Array<{ id: AgendaView; label: string; icon: IconName }> = [
+    { id: "timeline", label: "Timeline", icon: "chart" },
+    { id: "list", label: "Liste", icon: "tasks" },
+  ];
+  return (
+    <div style={{ display: "flex", background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 2 }}>
+      {buttons.map((b) => {
+        const active = view === b.id;
+        return (
+          <button
+            key={b.id}
+            onClick={() => onChange(b.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              background: active ? C.white : "transparent",
+              color: active ? C.text : C.textSub,
+              border: active ? `1px solid ${C.border}` : "1px solid transparent",
+              borderRadius: 7,
+              padding: "5px 11px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              boxShadow: active ? C.shadow : "none",
+            }}
+          >
+            <Icon name={b.icon} size={12} color={active ? C.text : C.textSub} />
+            {b.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SearchInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.white, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "5px 10px" }}>
+      <Icon name="search" size={12} color={C.textMute} />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Rechercher…"
+        style={{ border: "none", outline: "none", background: "transparent", fontSize: 12.5, color: C.text, fontFamily: "inherit", width: 130 }}
+      />
+    </div>
+  );
+}
+
+function FilterSelect({
+  value,
+  onChange,
+  placeholder,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  options: Array<{ value: string; label: string }>;
+}) {
+  const active = value !== "";
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        background: active ? C.navyLight : C.white,
+        color: active ? C.navy : C.textSub,
+        border: `1.5px solid ${active ? C.navyMid : C.border}`,
+        borderRadius: 8,
+        padding: "6px 10px",
+        fontSize: 12.5,
+        fontWeight: 600,
+        fontFamily: "inherit",
+        cursor: "pointer",
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ToggleChip({ active, label, icon, onClick }: { active: boolean; label: string; icon: IconName; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        background: active ? C.navy : C.white,
+        color: active ? "white" : C.textSub,
+        border: `1.5px solid ${active ? C.navy : C.border}`,
+        borderRadius: 100,
+        padding: "5px 11px",
+        fontSize: 12,
+        fontWeight: 700,
+        cursor: "pointer",
+        fontFamily: "inherit",
+      }}
+    >
+      <Icon name={icon} size={11} color={active ? "white" : C.textSub} />
+      {label}
+    </button>
+  );
+}
+
 function AgendaRow({
   task,
   project,
@@ -220,17 +431,7 @@ function AgendaRow({
   const due = task.due_date ? dueDateMeta(task.due_date, false) : null;
   const projColor = project?.color ?? C.navy;
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 10,
-        padding: "10px 12px",
-        background: C.white,
-        border: `1px solid ${C.border}`,
-        borderRadius: 10,
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", background: C.white, border: `1px solid ${C.border}`, borderRadius: 10 }}>
       <button
         onClick={onComplete}
         title="Marquer comme fait"
@@ -255,24 +456,7 @@ function AgendaRow({
         <EditableContent task={task} done={false} fontSize={13.5} onSave={onSetContent} />
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 5, alignItems: "center" }}>
           {project && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                background: `${projColor}14`,
-                color: projColor,
-                border: `1px solid ${projColor}28`,
-                borderRadius: 5,
-                padding: "2px 6px",
-                fontSize: 10,
-                fontWeight: 700,
-                whiteSpace: "nowrap",
-              }}
-            >
-              <Icon name={(project.icon ?? "target") as IconName} size={9} color={projColor} />
-              {project.name}
-            </span>
+            <Badge label={project.name} color={projColor} bg={`${projColor}14`} icon={(project.icon ?? "target") as IconName} />
           )}
           {prio && <Badge label={prio.label} color={prio.color} bg={prio.bg} icon={task.priority === "high" ? "warning" : undefined} />}
           {due && <Badge label={due.label} color={due.color} bg={due.bg} icon="clock" />}
@@ -280,19 +464,7 @@ function AgendaRow({
             <button
               onClick={() => onOpenSession(task.session_id!)}
               title={`Ouvrir la session · ${agent.name}`}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: 0,
-                color: agent.color,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 3,
-                fontSize: 10,
-                fontWeight: 600,
-                fontFamily: "inherit",
-              }}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: agent.color, display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 600, fontFamily: "inherit" }}
             >
               <Icon name={agent.icon as IconName} size={10} color={agent.color} />
               <Icon name="externalLink" size={9} color={agent.color} />

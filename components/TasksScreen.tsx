@@ -350,41 +350,43 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
                         }}
                       >
                         <EditableContent task={task} done={status === "done"} fontSize={13} onSave={(c) => setContent(task, c)} />
-                        {(prio || due) && (
-                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                        {(prio || due || agent) && (
+                          // Badges (priorité / échéance) + lien vers la conversation source,
+                          // tout sur une même ligne ; wrappe proprement si trop étroit.
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                             {prio && <Badge label={prio.label} color={prio.color} bg={prio.bg} icon={task.priority === "high" ? "warning" : undefined} />}
                             {due && <Badge label={due.label} color={due.color} bg={due.bg} icon="clock" />}
-                          </div>
-                        )}
-                        {agent && (
-                          <div
-                            style={{
-                              fontSize: 10.5,
-                              color: agent.color,
-                              fontWeight: 600,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4,
-                            }}
-                          >
-                            <Icon name={agent.icon as IconName} size={10} color={agent.color} />
-                            {agent.name}
-                            {task.session_id && (
-                              <button
-                                onClick={() => onOpenSession(task.session_id!)}
-                                title="Ouvrir la session source"
+                            {agent && (
+                              <span
                                 style={{
-                                  background: "none",
-                                  border: "none",
-                                  cursor: "pointer",
-                                  padding: 0,
-                                  marginLeft: 4,
+                                  fontSize: 10.5,
                                   color: agent.color,
-                                  display: "flex",
+                                  fontWeight: 600,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
                                 }}
                               >
-                                <Icon name="externalLink" size={10} color={agent.color} />
-                              </button>
+                                <Icon name={agent.icon as IconName} size={10} color={agent.color} />
+                                {agent.name}
+                                {task.session_id && (
+                                  <button
+                                    onClick={() => onOpenSession(task.session_id!)}
+                                    title="Ouvrir la session source"
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      cursor: "pointer",
+                                      padding: 0,
+                                      marginLeft: 2,
+                                      color: agent.color,
+                                      display: "flex",
+                                    }}
+                                  >
+                                    <Icon name="externalLink" size={10} color={agent.color} />
+                                  </button>
+                                )}
+                              </span>
                             )}
                           </div>
                         )}
