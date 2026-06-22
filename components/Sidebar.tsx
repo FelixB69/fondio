@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type MouseEvent } from "react";
+import Link from "next/link";
 import { AGENTS, AgentId, ProjectType, PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -26,7 +27,6 @@ interface SidebarProps {
   taskOpenCount?: number;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
-  onNavigate: (view: Exclude<SidebarView, "chat">) => void;
   onOpenAccount: () => void;
   onSignOut: () => void;
   onArchiveSession: (id: string) => void;
@@ -55,13 +55,15 @@ function NavItem({
   icon,
   label,
   active,
+  href,
   onClick,
   badge,
 }: {
   icon: IconName;
   label: string;
   active: boolean;
-  onClick: () => void;
+  href?: string;
+  onClick?: () => void;
   badge?: number;
 }) {
   const base: CSSProperties = {
@@ -79,18 +81,10 @@ function NavItem({
     fontSize: 13,
     transition: "background 0.12s",
     fontFamily: "inherit",
+    textDecoration: "none",
   };
-  return (
-    <button
-      onClick={onClick}
-      style={base}
-      onMouseEnter={(e) => {
-        if (!active) e.currentTarget.style.background = "#F1F5F9";
-      }}
-      onMouseLeave={(e) => {
-        if (!active) e.currentTarget.style.background = "transparent";
-      }}
-    >
+  const content = (
+    <>
       <Icon name={icon} size={14} color={active ? C.navy : C.textSub} />
       <span style={{ flex: 1, textAlign: "left" }}>{label}</span>
       {badge !== undefined && badge > 0 && (
@@ -109,6 +103,26 @@ function NavItem({
           {badge}
         </span>
       )}
+    </>
+  );
+  const hoverHandlers = {
+    onMouseEnter: (e: MouseEvent<HTMLElement>) => {
+      if (!active) e.currentTarget.style.background = "#F1F5F9";
+    },
+    onMouseLeave: (e: MouseEvent<HTMLElement>) => {
+      if (!active) e.currentTarget.style.background = "transparent";
+    },
+  };
+  if (href) {
+    return (
+      <Link href={href} style={base} {...hoverHandlers}>
+        {content}
+      </Link>
+    );
+  }
+  return (
+    <button onClick={onClick} style={base} {...hoverHandlers}>
+      {content}
     </button>
   );
 }
@@ -121,7 +135,6 @@ export function Sidebar({
   taskOpenCount,
   onSelectSession,
   onNewSession,
-  onNavigate,
   onOpenAccount,
   onSignOut,
   onArchiveSession,
@@ -207,31 +220,16 @@ export function Sidebar({
 
       {/* Nav */}
       <div style={{ padding: "6px 8px 4px" }}>
-        <NavItem
-          icon="target"
-          label="Projets"
-          active={currentView === "projects"}
-          onClick={() => onNavigate("projects")}
-        />
-        <NavItem
-          icon="book"
-          label="Bibliothèque"
-          active={currentView === "library"}
-          onClick={() => onNavigate("library")}
-        />
+        <NavItem icon="target" label="Projets" active={currentView === "projects"} href="/projects" />
+        <NavItem icon="book" label="Bibliothèque" active={currentView === "library"} href="/library" />
         <NavItem
           icon="tasks"
           label="Tâches"
           active={currentView === "tasks"}
-          onClick={() => onNavigate("tasks")}
+          href="/tasks"
           badge={taskOpenCount}
         />
-        <NavItem
-          icon="clock"
-          label="Agenda"
-          active={currentView === "agenda"}
-          onClick={() => onNavigate("agenda")}
-        />
+        <NavItem icon="clock" label="Agenda" active={currentView === "agenda"} href="/agenda" />
       </div>
 
       <div style={{ margin: "4px 16px 0", borderTop: `1px solid ${C.border}` }} />

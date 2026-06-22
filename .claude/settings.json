@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(pnpm run *)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(node /tmp/fondio-smoke.js)",
+      "Bash(grep -rn '`/app' \"app/\\(authenticated\\)\")",
+      "Bash(timeout 30 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 1; done')",
+      "Bash(curl -s -o /dev/null -w \"/home -> %{http_code} \\(loc: %{redirect_url}\\)\\\\n\" --max-redirs 0 http://localhost:3000/home)",
+      "Bash(curl -s -o /dev/null -w \"/tasks -> %{http_code} \\(loc: %{redirect_url}\\)\\\\n\" --max-redirs 0 http://localhost:3000/tasks)",
+      "Bash(curl -s -o /dev/null -w \"/chat/abc -> %{http_code} \\(loc: %{redirect_url}\\)\\\\n\" --max-redirs 0 http://localhost:3000/chat/abc)",
+      "Bash(node /tmp/fondio-smoke2.js)"
     ]
   }
 }

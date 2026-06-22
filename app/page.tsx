@@ -1,9 +1,11 @@
-import dynamic from "next/dynamic";
+"use client";
 
-// Render client-only: the App shell calls Supabase on mount and there is no
-// meaningful server-rendered shell to ship — the whole UI is gated on session.
-const App = dynamic(() => import("@/components/App").then((m) => m.App), { ssr: false });
+import { useRouter } from "next/navigation";
+import { LandingScreen } from "@/components/LandingScreen";
 
 export default function Page() {
-  return <App />;
+  const router = useRouter();
+  return (
+    <LandingScreen onLogin={() => router.push("/login")} onSignup={() => router.push("/signup")} />
+  );
 }

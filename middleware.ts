@@ -25,7 +25,20 @@ export async function middleware(req: NextRequest) {
     },
   );
 
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { pathname } = req.nextUrl;
+  const isPublicPath = pathname === "/" || pathname === "/login" || pathname === "/signup";
+  const isAuthOrApiRoute = pathname.startsWith("/auth") || pathname.startsWith("/api");
+
+  if (!user && !isPublicPath && !isAuthOrApiRoute) {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+  if (user && isPublicPath) {
+    return NextResponse.redirect(new URL("/home", req.url));
+  }
 
   return response;
 }
