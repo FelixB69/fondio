@@ -6,7 +6,9 @@ import { AGENTS, Agent, AgentId, Artifact, ChatMessage, ProjectType, PROJECT_TYP
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
+import type { ProjectLite } from "./AppDataProvider";
 import { Icon, IconName } from "./Icon";
+import { ProjectLinkButton } from "./ProjectLinkButton";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -426,18 +428,23 @@ interface MultiAgentSessionProps {
   sessionId: string;
   panelAgentIds: AgentId[];
   projectType: ProjectType;
+  projectId?: string | null;
+  project?: ProjectLite | null;
   initialMessages: ChatMessage[];
   onBack: () => void;
   onTitleChange?: (title: string) => void;
+  onLinkProject?: () => void;
 }
 
 export function MultiAgentSession({
   sessionId,
   panelAgentIds,
   projectType,
+  project = null,
   initialMessages,
   onBack,
   onTitleChange,
+  onLinkProject,
 }: MultiAgentSessionProps) {
   const isMobile = useIsMobile();
   const supabase = createClient();
@@ -664,6 +671,10 @@ export function MultiAgentSession({
             <Icon name={typeMeta.icon as IconName} size={11} color={typeMeta.color} />
             {typeMeta.name}
           </span>
+        )}
+
+        {onLinkProject && (
+          <ProjectLinkButton project={project} isMobile={isMobile} onClick={onLinkProject} />
         )}
       </div>
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AGENTS, AgentId, ProjectType, PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
+import type { ProjectLite } from "./AppDataProvider";
 import { Icon, IconName } from "./Icon";
 
 export type SidebarView = "chat" | "library" | "tasks" | "agenda" | "projects";
@@ -22,6 +23,7 @@ export interface SessionListItem {
 interface SidebarProps {
   sessions: SessionListItem[];
   archivedSessions: SessionListItem[];
+  projectsById: Record<string, ProjectLite>;
   activeSessionId: string | null;
   currentView: SidebarView;
   taskOpenCount?: number;
@@ -130,6 +132,7 @@ function NavItem({
 export function Sidebar({
   sessions,
   archivedSessions,
+  projectsById,
   activeSessionId,
   currentView,
   taskOpenCount,
@@ -257,6 +260,7 @@ export function Sidebar({
           const isPanel = Array.isArray(s.panel_agent_ids) && s.panel_agent_ids.length > 1;
           const agent = AGENTS[s.agent_id];
           const meta = PROJECT_TYPES[s.project_type];
+          const project = s.project_id ? projectsById[s.project_id] : undefined;
           const active = currentView === "chat" && s.id === activeSessionId;
           const hovered = hoveredId === s.id;
           return (
@@ -351,6 +355,48 @@ export function Sidebar({
                   >
                     {isPanel ? `Panel · ${s.panel_agent_ids?.length} agents` : agent?.name} · {formatRelative(s.updated_at)}
                   </div>
+                  {project && (
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        maxWidth: "100%",
+                        marginTop: 4,
+                        padding: "1px 7px 1px 3px",
+                        borderRadius: 100,
+                        background: C.navyLight,
+                        border: `1px solid ${C.navy}22`,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 13,
+                          height: 13,
+                          borderRadius: 4,
+                          background: project.color ?? C.navy,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon name={(project.icon ?? "target") as IconName} size={8} color="white" />
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          color: C.navy,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {project.name}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </button>
 

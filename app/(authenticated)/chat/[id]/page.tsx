@@ -10,7 +10,14 @@ import { AgentId } from "@/lib/data";
 export default function ChatPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
-  const { fetchSessionById, handleTitleChange, setLinkingSessionId } = useAppData();
+  const {
+    fetchSessionById,
+    handleTitleChange,
+    setLinkingSessionId,
+    sessions,
+    archivedSessions,
+    projectsById,
+  } = useAppData();
   const [session, setSession] = useState<SessionFull | null>(null);
   const [notFound, setNotFound] = useState(false);
 
@@ -38,6 +45,15 @@ export default function ChatPage() {
 
   if (!session) return null;
 
+  // Le rattachement vit dans le provider (mis à jour à chaque lien/délien) :
+  // on lit le project_id "vivant" depuis les listes plutôt que le snapshot
+  // chargé une seule fois, pour que le header se mette à jour instantanément.
+  const liveProjectId =
+    sessions.find((s) => s.id === session.id)?.project_id ??
+    archivedSessions.find((s) => s.id === session.id)?.project_id ??
+    session.project_id;
+  const project = liveProjectId ? projectsById[liveProjectId] ?? null : null;
+
   const panelIds = session.panel_agent_ids;
   if (panelIds && panelIds.length > 1) {
     return (
@@ -45,9 +61,12 @@ export default function ChatPage() {
         sessionId={session.id}
         panelAgentIds={panelIds as AgentId[]}
         projectType={session.project_type}
+        projectId={liveProjectId}
+        project={project}
         initialMessages={session.messages}
         onBack={() => router.push("/home")}
         onTitleChange={(title) => handleTitleChange(session.id, title)}
+        onLinkProject={() => setLinkingSessionId(session.id)}
       />
     );
   }
@@ -57,7 +76,8 @@ export default function ChatPage() {
       sessionId={session.id}
       agentId={session.agent_id}
       projectType={session.project_type}
-      projectId={session.project_id}
+      projectId={liveProjectId}
+      project={project}
       initialMessages={session.messages}
       initialChallenger={session.challenger_mode}
       onBack={() => router.push("/home")}

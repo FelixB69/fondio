@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AgentId, ChatMessage, ProjectType } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
@@ -18,13 +18,27 @@ export interface SessionFull {
   panel_agent_ids?: string[] | null;
 }
 
+// Vue allégée d'un projet, partagée à toute l'app (header de chat, sidebar,
+// modal de rattachement). Source de vérité unique pour éviter les requêtes
+// `projects` dupliquées dans chaque composant.
+export interface ProjectLite {
+  id: string;
+  name: string;
+  icon: string | null;
+  color: string | null;
+  project_type: ProjectType;
+}
+
 interface AppDataContextValue {
   sessions: SessionListItem[];
   archivedSessions: SessionListItem[];
+  projects: ProjectLite[];
+  projectsById: Record<string, ProjectLite>;
   taskOpenCount: number;
   userEmail: string | undefined;
   loadSessions: () => Promise<void>;
   loadArchivedSessions: () => Promise<void>;
+  loadProjects: () => Promise<void>;
   loadTaskCount: () => Promise<void>;
   fetchSessionById: (id: string) => Promise<SessionFull | null>;
   startNewSession: (
@@ -55,9 +69,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<SessionListItem[]>([]);
+  const [projects, setProjects] = useState<ProjectLite[]>([]);
   const [taskOpenCount, setTaskOpenCount] = useState(0);
   const [userEmail, setUserEmail] = useState<string | undefined>();
   const [linkingSessionId, setLinkingSessionId] = useState<string | null>(null);
+
+  // Index id → projet, recalculé seulement quand la liste change.
+  const projectsById = useMemo(() => {
+    const map: Record<string, ProjectLite> = {};
+    for (const p of projects) map[p.id] = p;
+    return map;
+  }, [projects]);
 
   const loadSessions = useCallback(async () => {
     const { data } = await supabase
@@ -77,6 +99,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setArchivedSessions((data ?? []) as SessionListItem[]);
   }, [supabase]);
 
+  const loadProjects = useCallback(async () => {
+    const { data } = await supabase
+      .from("projects")
+      .select("id, name, icon, color, project_type")
+      .order("updated_at", { ascending: false });
+    setProjects((data ?? []) as ProjectLite[]);
+  }, [supabase]);
+
   const loadTaskCount = useCallback(async () => {
     const { count } = await supabase
       .from("tasks")
@@ -94,6 +124,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     })();
     loadSessions();
     loadArchivedSessions();
+    loadProjects();
     loadTaskCount();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
@@ -104,7 +135,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setUserEmail(session.user.email ?? undefined);
     });
     return () => sub.subscription.unsubscribe();
-  }, [supabase, loadSessions, loadArchivedSessions, loadTaskCount, router]);
+  }, [supabase, loadSessions, loadArchivedSessions, loadProjects, loadTaskCount, router]);
 
   const fetchSessionById = useCallback(
     async (id: string): Promise<SessionFull | null> => {
@@ -223,10 +254,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       value={{
         sessions,
         archivedSessions,
+        projects,
+        projectsById,
         taskOpenCount,
         userEmail,
         loadSessions,
         loadArchivedSessions,
+        loadProjects,
         loadTaskCount,
         fetchSessionById,
         startNewSession,

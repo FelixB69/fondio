@@ -28,6 +28,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const {
     sessions,
     archivedSessions,
+    projectsById,
     taskOpenCount,
     userEmail,
     archiveSession,
@@ -37,6 +38,7 @@ function AppShell({ children }: { children: ReactNode }) {
     setLinkingSessionId,
     loadSessions,
     loadArchivedSessions,
+    loadProjects,
   } = useAppData();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -69,6 +71,7 @@ function AppShell({ children }: { children: ReactNode }) {
       <Sidebar
         sessions={sessions}
         archivedSessions={archivedSessions}
+        projectsById={projectsById}
         activeSessionId={activeSessionId}
         currentView={currentView}
         taskOpenCount={taskOpenCount}
@@ -77,7 +80,9 @@ function AppShell({ children }: { children: ReactNode }) {
           setSidebarOpen(false);
         }}
         onNewSession={() => {
-          router.push("/type");
+          // Passe par le sélecteur de projet (home) : on choisit le projet de
+          // rattachement dès la création, ou « Continuer sans projet ».
+          router.push("/home");
           setSidebarOpen(false);
         }}
         onOpenAccount={() => {
@@ -139,6 +144,7 @@ function AppShell({ children }: { children: ReactNode }) {
           onLinked={() => {
             loadSessions();
             loadArchivedSessions();
+            loadProjects();
             setLinkingSessionId(null);
           }}
         />

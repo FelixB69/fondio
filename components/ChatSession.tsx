@@ -15,7 +15,9 @@ import { C } from "@/lib/design-tokens";
 import { stripTrailingSections } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
+import type { ProjectLite } from "./AppDataProvider";
 import { Icon, IconName } from "./Icon";
+import { ProjectLinkButton } from "./ProjectLinkButton";
 
 const TABLE_DOWNLOAD_FORMATS = [
   { format: "csv", label: "CSV" },
@@ -311,6 +313,7 @@ interface ChatSessionProps {
   agentId: AgentId;
   projectType: ProjectType;
   projectId?: string | null;
+  project?: ProjectLite | null;
   initialMessages: ChatMessage[];
   initialChallenger: boolean;
   onBack: () => void;
@@ -813,6 +816,7 @@ export function ChatSession({
   agentId,
   projectType,
   projectId,
+  project = null,
   initialMessages,
   initialChallenger,
   onBack,
@@ -1120,28 +1124,7 @@ export function ChatSession({
         )}
 
         {onLinkProject && (
-          <button
-            onClick={onLinkProject}
-            title={projectId ? "Changer le projet rattaché" : "Rattacher cette session à un projet"}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: isMobile ? 0 : 6,
-              border: `1.5px solid ${projectId ? C.navy : C.border}`,
-              background: projectId ? C.navyLight : C.white,
-              color: projectId ? C.navy : C.textSub,
-              borderRadius: 100,
-              padding: isMobile ? "6px" : "5px 11px 5px 9px",
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 700,
-              fontFamily: "inherit",
-              transition: "all 0.15s",
-            }}
-          >
-            <Icon name="folder" size={12} color={projectId ? C.navy : C.textSub} />
-            {!isMobile && (projectId ? "Projet lié" : "Rattacher à un projet")}
-          </button>
+          <ProjectLinkButton project={project} isMobile={isMobile} onClick={onLinkProject} />
         )}
 
         <button

@@ -1,17 +1,12 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import { PROJECT_TYPES, ProjectType } from "@/lib/data";
+import { PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
+import { useAppData } from "./AppDataProvider";
 import { Icon, IconName } from "./Icon";
-
-interface ProjectRow {
-  id: string;
-  name: string;
-  emoji: string | null;
-  project_type: ProjectType;
-}
+import { NewProjectInput, NewProjectModal } from "./ProjectsScreen";
 
 export function LinkSessionModal({
   sessionId,
@@ -25,25 +20,15 @@ export function LinkSessionModal({
   onLinked: (projectId: string | null) => void;
 }) {
   const supabase = createClient();
-  const [projects, setProjects] = useState<ProjectRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Source de vérité unique : les projets viennent du provider, partagés avec le
+  // header de chat et la sidebar. On rafraîchit à l'ouverture du modal.
+  const { projects, loadProjects } = useAppData();
   const [saving, setSaving] = useState(false);
+  const [showNew, setShowNew] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase
-        .from("projects")
-        .select("id, name, emoji, project_type")
-        .order("updated_at", { ascending: false });
-      if (cancelled) return;
-      setProjects((data ?? []) as ProjectRow[]);
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [supabase]);
+    loadProjects();
+  }, [loadProjects]);
 
   const link = async (projectId: string | null) => {
     if (saving) return;
@@ -52,9 +37,42 @@ export function LinkSessionModal({
       .from("sessions")
       .update({ project_id: projectId })
       .eq("id", sessionId);
+    if (!error) {
+      // Les tâches déjà issues de cette session gardent un snapshot du
+      // project_id pris à leur création : on le réaligne ici, sinon elles
+      // restent « Sans projet » dans l'agenda et les projets après coup.
+      await supabase
+        .from("tasks")
+        .update({ project_id: projectId })
+        .eq("session_id", sessionId);
+    }
     setSaving(false);
     if (error) return;
     onLinked(projectId);
+  };
+
+  // Crée un projet à la volée puis rattache la session dessus — pas de
+  // cul-de-sac quand l'utilisateur n'a encore aucun projet.
+  const createAndLink = async (input: NewProjectInput) => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("projects")
+      .insert({
+        user_id: user.id,
+        name: input.name.trim(),
+        icon: input.icon,
+        color: input.color,
+        project_type: input.project_type,
+      })
+      .select("id")
+      .single();
+    if (error || !data) return;
+    await loadProjects();
+    setShowNew(false);
+    await link(data.id as string);
   };
 
   const overlay: CSSProperties = {
@@ -82,6 +100,7 @@ export function LinkSessionModal({
   };
 
   return (
+    <>
     <div style={overlay} onClick={onClose}>
       <div style={modal} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -143,13 +162,7 @@ export function LinkSessionModal({
             {currentProjectId === null && <Icon name="check" size={14} color={C.navy} />}
           </button>
 
-          {loading && (
-            <div style={{ color: C.textMute, fontSize: 13, padding: "12px 4px" }}>
-              Chargement…
-            </div>
-          )}
-
-          {!loading && projects.length === 0 && (
+          {projects.length === 0 && (
             <div
               style={{
                 color: C.textMute,
@@ -162,7 +175,7 @@ export function LinkSessionModal({
                 marginTop: 4,
               }}
             >
-              Pas encore de projet. Créez-en un depuis l'écran <b>Projets</b> dans la sidebar.
+              Pas encore de projet. Créez-en un ci-dessous pour y rattacher cette session.
             </div>
           )}
 
@@ -205,16 +218,15 @@ export function LinkSessionModal({
                     width: 32,
                     height: 32,
                     borderRadius: 8,
-                    background: meta.bg,
-                    border: `1.5px solid ${meta.color}25`,
+                    background: p.color ?? meta.bg,
+                    border: "none",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     flexShrink: 0,
-                    fontSize: 16,
                   }}
                 >
-                  {p.emoji ?? "🎯"}
+                  <Icon name={(p.icon ?? "target") as IconName} size={16} color="white" />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
@@ -249,7 +261,36 @@ export function LinkSessionModal({
             );
           })}
         </div>
+
+        {/* Créer un projet sans quitter le flux de rattachement */}
+        <button
+          onClick={() => setShowNew(true)}
+          disabled={saving}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 7,
+            width: "100%",
+            marginTop: 12,
+            background: C.white,
+            color: C.navy,
+            border: `1.5px solid ${C.navy}`,
+            borderRadius: 9,
+            padding: "10px 12px",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: saving ? "default" : "pointer",
+            fontFamily: "inherit",
+            flexShrink: 0,
+          }}
+        >
+          <Icon name="plus" size={13} color={C.navy} />
+          Nouveau projet
+        </button>
       </div>
     </div>
+    {showNew && <NewProjectModal onClose={() => setShowNew(false)} onCreate={createAndLink} />}
+    </>
   );
 }
