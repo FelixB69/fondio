@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AgentSelector } from "@/components/AgentSelector";
 import { useAppData } from "@/components/AppDataProvider";
 import { AgentId, ProjectType } from "@/lib/data";
 
-export default function AgentsPage() {
+function AgentsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { startNewSession } = useAppData();
@@ -29,5 +29,13 @@ export default function AgentsPage() {
         if (id) router.push(`/chat/${id}`);
       }}
     />
+  );
+}
+
+export default function AgentsPage() {
+  return (
+    <Suspense fallback={null}>
+      <AgentsPageContent />
+    </Suspense>
   );
 }
