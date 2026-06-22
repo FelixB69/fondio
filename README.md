@@ -25,8 +25,8 @@ OLLAMA_MODEL=llama3
 
 1. Créer un projet sur [supabase.com](https://supabase.com).
 2. **Authentication → Providers → Email** : *Confirm email* doit rester **activé** (la signup envoie un lien, l'utilisateur le clique, atterrit sur `/auth/callback` qui finalise la session).
-3. **Authentication → URL Configuration → Redirect URLs** : ajouter `http://localhost:3000/auth/callback` (et l'URL de prod si tu déploies).
-4. **SQL editor** : coller et exécuter [supabase/schema.sql](supabase/schema.sql). Cela crée `profiles` et `sessions`, active RLS, et drop les anciennes tables si tu migres depuis l'ancien schéma.
+3. **Authentication → URL Configuration → Redirect URLs** : ajouter `http://localhost:3000/auth/callback` (et l'URL de prod si vous déployez).
+4. **SQL editor** : coller et exécuter [supabase/schema.sql](supabase/schema.sql). Cela crée `profiles` et `sessions`, active RLS, et drop les anciennes tables si vous migrez depuis l'ancien schéma.
 5. **Settings → API** : copier `Project URL` et `anon public` key dans `.env.local`.
 
 ### 3. Ollama
@@ -37,12 +37,12 @@ ollama serve              # daemon sur http://localhost:11434
 ollama pull llama3        # ou : mistral, llama3.1:8b, qwen2.5...
 ```
 
-Vérifie le modèle disponible :
+Vérifiez le modèle disponible :
 ```bash
 ollama list
 ```
 
-Si tu utilises un autre tag, ajuste `OLLAMA_MODEL` dans `.env.local`.
+Si vous utilisez un autre tag, ajustez `OLLAMA_MODEL` dans `.env.local`.
 
 ### 4. Lancer
 

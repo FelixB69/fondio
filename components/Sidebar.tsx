@@ -252,7 +252,7 @@ export function Sidebar({
         </div>
         {sessions.length === 0 && (
           <div style={{ padding: "8px 8px", fontSize: 12, color: C.textMute, lineHeight: 1.5 }}>
-            Pas encore de session. Démarre-en une depuis le bouton ci-dessus.
+            Pas encore de session. Démarrez-en une depuis le bouton ci-dessus.
           </div>
         )}
         {sessions.map((s) => {

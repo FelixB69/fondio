@@ -285,7 +285,7 @@ export function LibraryScreen({
           >
             Aucun livrable pour le moment.
             <br />
-            Discute avec un agent, ils en produisent automatiquement quand ils ont quelque chose de
+            Discutez avec un agent, ils en produisent automatiquement quand ils ont quelque chose de
             concret à proposer.
           </div>
         )}

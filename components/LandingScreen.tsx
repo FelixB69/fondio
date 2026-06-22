@@ -15,7 +15,7 @@ const FEATURES: { icon: IconName; title: string; desc: string }[] = [
   {
     icon: "msgSquare",
     title: "Livrables concrets",
-    desc: "Chaque échange produit des livrables structurés — tableaux, documents — exportables en PDF ou Word.",
+    desc: "Chaque échange produit des livrables structurés (tableaux, documents) exportables en PDF ou Word.",
   },
   {
     icon: "zap",
@@ -146,7 +146,7 @@ export function LandingScreen({
             }}
           >
             Stratégie, finance, lancement, reconversion. Choisissez un agent, démarrez une session structurée et
-            obtenez des livrables concrets — pas juste une conversation.
+            obtenez des livrables concrets, pas juste une conversation.
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
             <button onClick={onSignup} style={primaryBtn}>

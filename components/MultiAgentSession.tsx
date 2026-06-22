@@ -515,7 +515,7 @@ export function MultiAgentSession({
         newMessages.push(agentMsg);
         previousReplies.push({ agentId: panelAgentIds[step], content: agentMsg.content });
 
-        // Ajoute le message dans l'UI au fur et à mesure
+        // Ajoutez le message dans l'UI au fur et à mesure
         setMessages((prev) => {
           const base = step === 0
             ? [...prev, { role: "user" as const, content: trimmed, ts: new Date().toISOString() }]

@@ -473,7 +473,7 @@ export function ProjectDetailScreen({
             }}
           >
             Pas encore de tâche pour ce projet.<br />
-            Ajoute-en une ci-dessus, ou convertis un livrable depuis une session.
+            Ajoutez-en une ci-dessus, ou convertissez un livrable depuis une session.
           </div>
         )}
 

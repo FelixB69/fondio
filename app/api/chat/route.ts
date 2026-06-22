@@ -298,7 +298,7 @@ async function runWebResearch(
     {
       role: "system",
       content:
-        'Tu es un assistant de recherche. À partir de la conversation, utilise l\'outil web_search autant de fois que nécessaire pour rassembler les infos factuelles utiles (tu peux chercher plusieurs fois pour creuser un sujet). Quand tu as assez d\'infos — ou si aucune recherche n\'est utile (remerciement, small talk, coaching, reformulation) — réponds juste "FINI" sans appeler d\'outil.',
+        'Tu es un assistant de recherche. À partir de la conversation, utilise l\'outil web_search autant de fois que nécessaire pour rassembler les infos factuelles utiles (tu peux chercher plusieurs fois pour creuser un sujet). Quand tu as assez d\'infos — ou si aucune recherche n\'est utile (remerciement, small talk, coaching, reformulation) — réponds juste "FINI" sans appeler d\'outil. IMPORTANT : Vouvoie SYSTÉMATIQUEMENT l\'utilisateur dans ta réponse (vous, votre, vos — jamais tu, ton, tes).',
     },
     ...recent.map((m): ToolLoopMessage => ({ role: m.role, content: m.content })),
   ];

@@ -328,7 +328,7 @@ export function AgentSelector({
             <div style={{ flex: 1, display: "flex", flexWrap: "wrap", gap: 6 }}>
               {selectedIds.length === 0 ? (
                 <span style={{ fontSize: 13, color: C.textMute }}>
-                  Sélectionne 2 à 4 agents…
+                  Sélectionnez 2 à 4 agents…
                 </span>
               ) : (
                 selectedIds.map((id) => {

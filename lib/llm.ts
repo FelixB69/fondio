@@ -113,7 +113,7 @@ async function callMistralJson(messages: LLMMessage[], opts?: CallOptions): Prom
   if (!MISTRAL_API_KEY) {
     throw new Error(
       `Ollama injoignable sur ${OLLAMA_BASE_URL} et MISTRAL_API_KEY non configurée. ` +
-        `Lance \`ollama serve\` ou ajoute MISTRAL_API_KEY dans .env.`,
+        `Lancez \`ollama serve\` ou ajoutez MISTRAL_API_KEY dans .env.`,
     );
   }
   const res = await fetch(`${MISTRAL_BASE_URL}/chat/completions`, {
@@ -368,7 +368,7 @@ async function callMistralStream(messages: LLMMessage[]): Promise<AsyncIterable<
   if (!MISTRAL_API_KEY) {
     throw new Error(
       `Ollama injoignable sur ${OLLAMA_BASE_URL} et MISTRAL_API_KEY non configurée. ` +
-        `Lance \`ollama serve\` ou ajoute MISTRAL_API_KEY dans .env.`,
+        `Lancez \`ollama serve\` ou ajoutez MISTRAL_API_KEY dans .env.`,
     );
   }
   const res = await fetch(`${MISTRAL_BASE_URL}/chat/completions`, {

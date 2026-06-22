@@ -44,7 +44,7 @@ export async function searchWeb(
   // de partir dans une erreur réseau incompréhensible.
   if (!TAVILY_API_KEY) {
     throw new Error(
-      "TAVILY_API_KEY manquante. Crée un compte gratuit sur tavily.com et ajoute la clé dans .env.",
+      "TAVILY_API_KEY manquante. Créez un compte gratuit sur tavily.com et ajoutez la clé dans .env.",
     );
   }
 

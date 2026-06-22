@@ -155,7 +155,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
           )}
         </div>
         <p style={{ margin: "0 0 14px", fontSize: 13, color: C.textSub }}>
-          Ajoute des tâches ou convertis-en directement depuis les livrables d'un agent (bouton ⊕ dans le chat).
+          Ajoutez des tâches ou convertissez-en directement depuis les livrables d'un agent (bouton ⊕ dans le chat).
         </p>
 
         {/* Progress bar */}
@@ -257,7 +257,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
               lineHeight: 1.6,
             }}
           >
-            Pas encore de tâche. Ajoute la première ci-dessus, ou convertis un livrable depuis le chat.
+            Pas encore de tâche. Ajoutez la première ci-dessus, ou convertissez un livrable depuis le chat.
           </div>
         )}
 

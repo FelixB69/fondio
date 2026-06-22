@@ -2,6 +2,8 @@
 
 import { useState, type CSSProperties } from "react";
 import { LuLoader, LuArrowLeft, LuCheck } from "react-icons/lu";
+import { FcGoogle } from "react-icons/fc";
+import { FaLinkedin } from "react-icons/fa";
 import { AGENTS, AgentId } from "@/lib/data";
 import { Icon, IconName } from "./Icon";
 import { C } from "@/lib/design-tokens";
@@ -212,6 +214,16 @@ export function AuthScreen({
 
   const supabase = createClient();
 
+  const handleOAuth = async (provider: "google" | "linkedin_oidc") => {
+    setLoading(true);
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: `${origin}/auth/callback` },
+    });
+    // Le navigateur est redirigé vers le provider ; setLoading(false) jamais atteint en cas de succès.
+  };
+
   const handleSubmit = async () => {
     if (!validate()) return;
     setLoading(true);
@@ -271,6 +283,41 @@ export function AuthScreen({
     }
   };
 
+  const oauthBtn: CSSProperties = {
+    width: "100%",
+    padding: "10px",
+    background: C.white,
+    color: C.text,
+    border: `1.5px solid ${C.border}`,
+    borderRadius: 9,
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  };
+
+  const renderOAuthButtons = () => (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <button type="button" onClick={() => handleOAuth("google")} disabled={loading} style={{ ...oauthBtn, opacity: loading ? 0.7 : 1 }}>
+          <FcGoogle size={18} /> Continuer avec Google
+        </button>
+        <button type="button" onClick={() => handleOAuth("linkedin_oidc")} disabled={loading} style={{ ...oauthBtn, opacity: loading ? 0.7 : 1 }}>
+          <FaLinkedin size={18} color="#0A66C2" /> Continuer avec LinkedIn
+        </button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "20px 0" }}>
+        <div style={{ flex: 1, height: 1, background: C.border }} />
+        <span style={{ fontSize: 12, color: C.textSub, fontWeight: 600 }}>OU</span>
+        <div style={{ flex: 1, height: 1, background: C.border }} />
+      </div>
+    </div>
+  );
+
   const primaryBtn: CSSProperties = {
     width: "100%",
     padding: "12px",
@@ -312,6 +359,8 @@ export function AuthScreen({
           Créer un compte
         </button>
       </p>
+
+      {renderOAuthButtons()}
 
       <InputField
         label="Adresse e-mail"
@@ -383,6 +432,8 @@ export function AuthScreen({
           Se connecter
         </button>
       </p>
+
+      {renderOAuthButtons()}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <InputField
