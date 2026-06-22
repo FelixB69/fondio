@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AGENTS, AgentId, Task, TaskPriority } from "@/lib/data";
+import { AGENTS, AgentId, Task, TaskPriority, TaskStatus } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -21,6 +21,7 @@ import {
 import { AgendaTimeline, ProjectLite } from "./AgendaTimeline";
 import { Icon, IconName } from "./Icon";
 import { Badge, EditableContent, TaskControls } from "./TaskBits";
+import { TaskDetailModal } from "./TaskDetailModal";
 
 type AgendaView = "timeline" | "list";
 
@@ -32,6 +33,9 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<AgendaView>(isMobile ? "list" : "timeline");
   const [filters, setFilters] = useState<AgendaFilters>(EMPTY_AGENDA_FILTERS);
+  // Tâche ouverte dans la popup d'édition. On garde l'id (pas l'objet) pour que
+  // la popup reflète les mises à jour optimistes en relisant depuis `tasks`.
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,6 +59,7 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
   }, [load]);
 
   const filtered = useMemo(() => tasks.filter((t) => matchesAgenda(t, filters)), [tasks, filters]);
+  const editingTask = useMemo(() => tasks.find((t) => t.id === editingTaskId) ?? null, [tasks, editingTaskId]);
 
   // Vue Liste : regroupement par horizon (les tâches « done » sortent via agendaBucket).
   const buckets = useMemo(() => {
@@ -88,10 +93,21 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
   const patch = (id: string, fields: Partial<Task>) =>
     setTasks((p) => p.map((t) => (t.id === id ? { ...t, ...fields } : t)));
 
-  const complete = async (task: Task) => {
-    const completed_at = new Date().toISOString();
-    patch(task.id, { status: "done", completed_at });
-    await supabase.from("tasks").update({ status: "done", completed_at }).eq("id", task.id);
+  // Change le statut (todo/doing/done). `completed_at` suit le statut : posé en
+  // passant à « fait », effacé en revenant en arrière.
+  const setStatus = async (task: Task, status: TaskStatus) => {
+    if (task.status === status) return;
+    const completed_at = status === "done" ? new Date().toISOString() : null;
+    patch(task.id, { status, completed_at });
+    await supabase.from("tasks").update({ status, completed_at }).eq("id", task.id);
+  };
+
+  const complete = (task: Task) => setStatus(task, "done");
+
+  const deleteTask = async (task: Task) => {
+    setTasks((p) => p.filter((t) => t.id !== task.id));
+    setEditingTaskId(null);
+    await supabase.from("tasks").delete().eq("id", task.id);
   };
 
   const setPriority = async (task: Task, priority: TaskPriority) => {
@@ -228,6 +244,7 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
             onComplete={complete}
             onAddTask={addTask}
             onOpenSession={onOpenSession}
+            onOpenTask={(task) => setEditingTaskId(task.id)}
           />
         )}
 
@@ -276,6 +293,23 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
           </div>
         )}
       </div>
+
+      {/* Popup d'édition (ouverte au clic sur une barre de la timeline) */}
+      {editingTask && (
+        <TaskDetailModal
+          key={editingTask.id}
+          task={editingTask}
+          project={editingTask.project_id ? projects[editingTask.project_id] : undefined}
+          onClose={() => setEditingTaskId(null)}
+          onSetStatus={(s) => setStatus(editingTask, s)}
+          onSetPriority={(p) => setPriority(editingTask, p)}
+          onSetStart={(d) => setStartDate(editingTask, d)}
+          onSetDue={(d) => setDueDate(editingTask, d)}
+          onSetContent={(c) => setContent(editingTask, c)}
+          onDelete={() => deleteTask(editingTask)}
+          onOpenSession={onOpenSession}
+        />
+      )}
     </div>
   );
 }

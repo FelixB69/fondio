@@ -46,6 +46,7 @@ interface AgendaTimelineProps {
   onComplete: (task: Task) => void;
   onAddTask: (input: { content: string; due_date: string; project_id: string | null }) => void;
   onOpenSession: (id: string) => void;
+  onOpenTask: (task: Task) => void; // clic (sans glisser) sur une barre → popup d'édition
 }
 
 type DragMode = "move" | "start" | "end";
@@ -73,6 +74,7 @@ export function AgendaTimeline({
   onComplete,
   onAddTask,
   onOpenSession,
+  onOpenTask,
 }: AgendaTimelineProps) {
   const today = todayStr();
   // Fenêtre de 6 semaines, démarrant une semaine avant la semaine courante pour
@@ -143,8 +145,13 @@ export function AgendaTimeline({
   };
   const onBarUp = (task: Task) => {
     if (!drag) return;
-    const { mode, deltaDays } = drag;
+    const { mode, deltaDays, moved } = drag;
     setDrag(null);
+    // Pression sans glisser = clic → on ouvre la popup d'édition.
+    if (!moved) {
+      onOpenTask(task);
+      return;
+    }
     if (deltaDays === 0) return;
     const b = taskBounds(task)!;
     if (mode === "move") {
@@ -372,7 +379,7 @@ export function AgendaTimeline({
                           onPointerDown={(e) => onBarDown(e, task, "move")}
                           onPointerMove={onBarMove}
                           onPointerUp={() => onBarUp(task)}
-                          title={`${task.content}\n${taskBounds(task)!.start} → ${taskBounds(task)!.end}`}
+                          title={`${task.content}\n${taskBounds(task)!.start} → ${taskBounds(task)!.end}\nCliquer pour modifier · glisser pour déplacer`}
                           style={{
                             position: "absolute",
                             top: (ROW_H - BAR_H) / 2,

@@ -9,7 +9,8 @@
       "Bash(curl -s -o /dev/null -w \"/home -> %{http_code} \\(loc: %{redirect_url}\\)\\\\n\" --max-redirs 0 http://localhost:3000/home)",
       "Bash(curl -s -o /dev/null -w \"/tasks -> %{http_code} \\(loc: %{redirect_url}\\)\\\\n\" --max-redirs 0 http://localhost:3000/tasks)",
       "Bash(curl -s -o /dev/null -w \"/chat/abc -> %{http_code} \\(loc: %{redirect_url}\\)\\\\n\" --max-redirs 0 http://localhost:3000/chat/abc)",
-      "Bash(node /tmp/fondio-smoke2.js)"
+      "Bash(node /tmp/fondio-smoke2.js)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/agenda)"
     ]
   }
 }
