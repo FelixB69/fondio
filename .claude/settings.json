@@ -10,7 +10,17 @@
       "Bash(curl -s -o /dev/null -w \"/tasks -> %{http_code} \\(loc: %{redirect_url}\\)\\\\n\" --max-redirs 0 http://localhost:3000/tasks)",
       "Bash(curl -s -o /dev/null -w \"/chat/abc -> %{http_code} \\(loc: %{redirect_url}\\)\\\\n\" --max-redirs 0 http://localhost:3000/chat/abc)",
       "Bash(node /tmp/fondio-smoke2.js)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/agenda)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/agenda)",
+      "Bash(npm uninstall *)",
+      "Bash(awk 'NR>706 && /^\\(function|const\\) [A-Za-z]/ {print NR\": \"$0; c++; if\\(c>=3\\) exit}' components/ChatSession.tsx)",
+      "Bash(awk 'NR>706 && /^[A-Za-z]/ {print NR\": \"$0; c++; if\\(c>=4\\) exit}' components/ChatSession.tsx)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git reset *)",
+      "Bash(git commit -m 'feat: add Vitest tests and bundle optimization *)",
+      "Bash(git commit -m 'refactor: extract shared helpers and optimize images *)",
+      "Bash(git commit -m 'feat: centralize task data with SWR cache layer *)",
+      "Bash(git commit -m 'perf: optimize React rendering and remove dead code *)"
     ]
   }
 }
