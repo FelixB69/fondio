@@ -21,7 +21,7 @@ const FEATURES: { icon: IconName; title: string; desc: string }[] = [
   {
     icon: "msgSquare",
     title: "Sessions structurées",
-    desc: "Chaque échange suit un fil clair — contexte, analyse, recommandations — au lieu d'une conversation qui s'éparpille.",
+    desc: "Chaque échange suit un fil clair : contexte, analyse, recommandations, au lieu d'une conversation qui s'éparpille.",
   },
 ];
 
@@ -44,7 +44,7 @@ const WORKSPACE_PILLARS: { icon: IconName; title: string; desc: string }[] = [
   {
     icon: "word",
     title: "Livrables",
-    desc: "Chaque échange produit des livrables structurés — tableaux, documents — exportables en PDF ou Word.",
+    desc: "Chaque échange produit des livrables structurés : tableaux, documents, exportables en PDF ou Word.",
   },
 ];
 
@@ -164,7 +164,7 @@ export function LandingScreen({
               maxWidth: 560,
             }}
           >
-            Choisissez un conseiller IA spécialisé, démarrez une session structurée — puis pilotez la suite
+            Choisissez un conseiller IA spécialisé, démarrez une session structurée, puis pilotez la suite
             au même endroit : projets, tâches, agenda et livrables. Un espace de travail complet, pas juste une conversation.
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
@@ -230,7 +230,7 @@ export function LandingScreen({
           Un agent pour chaque besoin
         </h2>
         <p style={{ margin: "0 0 28px", color: C.textSub, fontSize: 14, textAlign: "center" }}>
-          4 conseillers pro, 5 conseillers perso — chacun avec son propre angle d'expertise.
+          4 conseillers pro, 5 conseillers perso, chacun avec son propre angle d'expertise.
         </p>
         <div
           style={{
@@ -304,7 +304,7 @@ export function LandingScreen({
           Un espace de travail complet, pas juste un chat
         </h2>
         <p style={{ margin: "0 0 28px", color: C.textSub, fontSize: 14, textAlign: "center" }}>
-          Vos conseils se transforment en projets pilotés — tâches, échéances et livrables réunis au même endroit.
+          Vos conseils se transforment en projets pilotés : tâches, échéances et livrables réunis au même endroit.
         </p>
         <div
           style={{

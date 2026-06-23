@@ -164,7 +164,7 @@ export function ModelSelector({
                 ? "Vérification d'Ollama…"
                 : ollamaUp
                   ? "Ollama détecté"
-                  : "Ollama non détecté — cliquez pour re-vérifier"
+                  : "Ollama non détecté : cliquez pour re-vérifier"
             }
             statusOk={ollamaUp}
             modelName={status ? prettyModelName(status.local.chat) : "—"}

@@ -93,7 +93,7 @@ export async function PUT(req: Request) {
       .single();
     if (!keyRow) {
       return NextResponse.json(
-        { error: "Aucune clé enregistrée pour ce fournisseur — ajoutez-la d'abord." },
+        { error: "Aucune clé enregistrée pour ce fournisseur : ajoutez-la d'abord." },
         { status: 400 },
       );
     }
