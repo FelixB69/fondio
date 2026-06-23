@@ -206,6 +206,207 @@ function safeParseArgs(s: string): Record<string, unknown> {
   }
 }
 
+// ── BYOK (Bring Your Own Key) ───────────────────────────────────────────────
+//
+// Un 3e tier de provider, en plus de local (Ollama) et cloud (Mistral Fondio) :
+// l'utilisateur fournit sa propre clé API. Chaque fournisseur a son propre
+// format de message / tool-calling ; on traduit depuis/vers les types
+// normalisés déjà utilisés pour Ollama/Mistral (LLMMessage, ToolLoopMessage).
+
+export type BYOKProviderId = "anthropic" | "openai" | "google" | "mistral_byok";
+
+export interface BYOKConfig {
+  provider: BYOKProviderId;
+  apiKey: string;
+}
+
+const ANTHROPIC_API_VERSION = "2023-06-01";
+const ANTHROPIC_MAX_TOKENS = 8192;
+
+// Anthropic veut le system prompt à part (pas dans le tableau messages).
+function splitSystemMessage(messages: LLMMessage[]): { system: string; rest: LLMMessage[] } {
+  const system = messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n\n");
+  const rest = messages.filter((m) => m.role !== "system");
+  return { system, rest };
+}
+
+async function callAnthropicJson(
+  messages: LLMMessage[],
+  apiKey: string,
+  model: string,
+): Promise<string> {
+  const { system, rest } = splitSystemMessage(messages);
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": ANTHROPIC_API_VERSION,
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: ANTHROPIC_MAX_TOKENS,
+      system,
+      messages: rest.map((m) => ({ role: m.role, content: m.content })),
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Anthropic ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+  const raw = (json.content ?? [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text ?? "")
+    .join("")
+    .trim();
+  if (!raw) throw new Error("Réponse vide du modèle.");
+  return raw;
+}
+
+async function callAnthropicStream(
+  messages: LLMMessage[],
+  apiKey: string,
+  model: string,
+): Promise<AsyncIterable<string>> {
+  const { system, rest } = splitSystemMessage(messages);
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": ANTHROPIC_API_VERSION,
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: ANTHROPIC_MAX_TOKENS,
+      system,
+      stream: true,
+      messages: rest.map((m) => ({ role: m.role, content: m.content })),
+    }),
+  });
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Anthropic ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return anthropicStreamToText(res.body);
+}
+
+async function* anthropicStreamToText(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
+  const decoder = new TextDecoder();
+  const reader = body.getReader();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload) continue;
+      try {
+        const json = JSON.parse(payload) as { type?: string; delta?: { type?: string; text?: string } };
+        if (json.type === "content_block_delta" && json.delta?.type === "text_delta" && json.delta.text) {
+          yield json.delta.text;
+        }
+      } catch {
+        // ligne SSE partielle, ignore
+      }
+    }
+  }
+}
+
+function toAnthropicTools(tools: ToolDef[]) {
+  return tools.map((t) => ({
+    name: t.function.name,
+    description: t.function.description,
+    input_schema: t.function.parameters,
+  }));
+}
+
+function toAnthropicMessages(messages: ToolLoopMessage[]): { system: string; rest: unknown[] } {
+  const system = messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n\n");
+  const rest = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => {
+      if (m.role === "assistant" && m.toolCalls?.length) {
+        return {
+          role: "assistant",
+          content: [
+            ...(m.content ? [{ type: "text", text: m.content }] : []),
+            ...m.toolCalls.map((t) => ({
+              type: "tool_use",
+              id: t.id,
+              name: t.name,
+              input: safeParseArgs(t.arguments),
+            })),
+          ],
+        };
+      }
+      if (m.role === "tool") {
+        return {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: m.toolCallId, content: m.content }],
+        };
+      }
+      return { role: m.role, content: m.content };
+    });
+  return { system, rest };
+}
+
+async function callAnthropicTools(
+  messages: ToolLoopMessage[],
+  tools: ToolDef[],
+  apiKey: string,
+  model: string,
+): Promise<ToolTurnResult> {
+  const { system, rest } = toAnthropicMessages(messages);
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": ANTHROPIC_API_VERSION,
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: ANTHROPIC_MAX_TOKENS,
+      system,
+      messages: rest,
+      tools: toAnthropicTools(tools),
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Anthropic tools ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    content?: Array<{ type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }>;
+  };
+  const blocks = json.content ?? [];
+  const content = blocks
+    .filter((b) => b.type === "text")
+    .map((b) => b.text ?? "")
+    .join("");
+  const toolCalls: ToolCall[] = blocks
+    .filter((b) => b.type === "tool_use")
+    .map((b) => ({ id: b.id ?? "", name: b.name ?? "", arguments: JSON.stringify(b.input ?? {}) }));
+  return { content, toolCalls };
+}
+
+// Alias d'export réservé aux tests — la fonction reste interne au module pour
+// le code applicatif (accédée via callByokJson dans Task 6).
+export { callAnthropicJson as callAnthropicJsonForTest };
+
 // Ollama veut les arguments d'outil en OBJET, et n'utilise pas d'identifiant.
 function toOllamaToolMessages(messages: ToolLoopMessage[]) {
   return messages.map((m) => {
