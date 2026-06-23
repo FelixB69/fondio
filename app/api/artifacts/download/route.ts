@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import * as XLSX from "xlsx";
+import { utils as xlsxUtils, write as xlsxWrite } from "xlsx";
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import PDFDocument from "pdfkit";
 import type { Artifact } from "@/lib/data";
@@ -110,10 +110,10 @@ function toCsv(headers: string[], rows: string[][]): string {
 }
 
 function toXlsx(title: string, headers: string[], rows: string[][]): Buffer {
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, title.slice(0, 31) || "Sheet1");
-  const out = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  const ws = xlsxUtils.aoa_to_sheet([headers, ...rows]);
+  const wb = xlsxUtils.book_new();
+  xlsxUtils.book_append_sheet(wb, ws, title.slice(0, 31) || "Sheet1");
+  const out = xlsxWrite(wb, { type: "buffer", bookType: "xlsx" });
   return Buffer.isBuffer(out) ? out : Buffer.from(out);
 }
 

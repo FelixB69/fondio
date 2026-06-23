@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import Image from "next/image";
 import { AGENTS, AgentId } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -108,7 +109,7 @@ export function LandingScreen({
             margin: "0 auto",
           }}
         >
-          <img src="/fondio-logo.png" alt="Fondio" style={{ height: 60, width: "auto", display: "block" }} />
+          <Image src="/fondio-logo.png" alt="Fondio" width={790} height={272} priority style={{ height: 60, width: "auto", display: "block" }} />
           {!isMobile && (
             <button onClick={onLogin} style={{ ...secondaryBtn, padding: "9px 20px", borderColor: "rgba(255,255,255,0.3)", color: "white" }}>
               Se connecter

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, type CSSProperties, type MouseEvent } from "react";
+import { memo, useState, type CSSProperties, type MouseEvent } from "react";
 import Link from "next/link";
 import { AGENTS, AgentId, ProjectType, PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import { formatRelative } from "@/lib/format";
 import { useIsMobile } from "@/lib/use-responsive";
 import type { ProjectLite } from "./AppDataProvider";
 import { Icon, IconName } from "./Icon";
@@ -38,19 +39,6 @@ interface SidebarProps {
   userEmail?: string;
   isMobileOpen?: boolean;
   onMobileClose?: () => void;
-}
-
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.round(diff / 60000);
-  if (m < 1) return "À l'instant";
-  if (m < 60) return `Il y a ${m} min`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `Il y a ${h}h`;
-  const d = Math.round(h / 24);
-  if (d < 7) return `Il y a ${d}j`;
-  const w = Math.round(d / 7);
-  return `Il y a ${w} sem.`;
 }
 
 function NavItem({
@@ -129,6 +117,238 @@ function NavItem({
   );
 }
 
+// Ligne de session de la liste active. L'état de survol est LOCAL : survoler une
+// ligne ne re-render plus toute la sidebar (avant : `hoveredId` au niveau parent
+// re-rendait l'ensemble des sessions). Mémoïsé pour éviter les rendus inutiles
+// quand la liste change mais que cette ligne reste identique.
+const SessionRow = memo(function SessionRow({
+  s,
+  active,
+  project,
+  onSelect,
+  onLink,
+  onArchive,
+}: {
+  s: SessionListItem;
+  active: boolean;
+  project: ProjectLite | undefined;
+  onSelect: (id: string) => void;
+  onLink: (id: string) => void;
+  onArchive: (id: string) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const isPanel = Array.isArray(s.panel_agent_ids) && s.panel_agent_ids.length > 1;
+  const agent = AGENTS[s.agent_id];
+  const meta = PROJECT_TYPES[s.project_type];
+  return (
+    <div
+      style={{ position: "relative", marginBottom: 2 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <button
+        onClick={() => onSelect(s.id)}
+        style={{
+          width: "100%",
+          display: "flex",
+          gap: 8,
+          padding: hovered ? "8px 58px 8px 10px" : "8px 10px",
+          borderRadius: 8,
+          border: "none",
+          cursor: "pointer",
+          background: active ? C.navyLight : hovered ? "#F1F5F9" : "transparent",
+          textAlign: "left",
+          fontFamily: "inherit",
+          transition: "background 0.12s, padding 0.1s",
+          alignItems: "flex-start",
+        }}
+      >
+        {isPanel ? (
+          <div style={{ display: "flex", flexShrink: 0 }}>
+            {(s.panel_agent_ids ?? []).slice(0, 3).map((id, i) => (
+              <div
+                key={id}
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 5,
+                  background: AGENTS[id as AgentId]?.bg ?? C.bg,
+                  border: "1.5px solid white",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 10,
+                  marginLeft: i > 0 ? -6 : 0,
+                  position: "relative",
+                  zIndex: 3 - i,
+                }}
+              >
+                <Icon name={(AGENTS[id as AgentId]?.icon ?? "sparkles") as IconName} size={10} color={AGENTS[id as AgentId]?.color ?? C.text} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 7,
+              background: agent?.bg ?? C.bg,
+              border: `1.5px solid ${agent?.color ?? C.border}25`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              fontSize: 13,
+            }}
+          >
+            <Icon name={(agent?.icon ?? "sparkles") as IconName} size={13} color={agent?.color ?? C.text} />
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 12.5,
+              fontWeight: active ? 700 : 600,
+              color: C.text,
+              lineHeight: 1.3,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+            }}
+          >
+            {s.title ?? "Nouvelle session"}
+          </div>
+          <div
+            style={{
+              fontSize: 10.5,
+              color: meta?.color ?? C.textMute,
+              fontWeight: 600,
+              marginTop: 2,
+            }}
+          >
+            {isPanel ? `Panel · ${s.panel_agent_ids?.length} agents` : agent?.name} · {formatRelative(s.updated_at)}
+          </div>
+          {project && (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                maxWidth: "100%",
+                marginTop: 4,
+                padding: "1px 7px 1px 3px",
+                borderRadius: 100,
+                background: C.navyLight,
+                border: `1px solid ${C.navy}22`,
+              }}
+            >
+              <span
+                style={{
+                  width: 13,
+                  height: 13,
+                  borderRadius: 4,
+                  background: project.color ?? C.navy,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name={(project.icon ?? "target") as IconName} size={8} color="white" />
+              </span>
+              <span
+                style={{
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  color: C.navy,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {project.name}
+              </span>
+            </div>
+          )}
+        </div>
+      </button>
+
+      {hovered && (
+        <div
+          style={{
+            position: "absolute",
+            right: 4,
+            top: "50%",
+            transform: "translateY(-50%)",
+            display: "flex",
+            gap: 1,
+          }}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onLink(s.id);
+            }}
+            title={s.project_id ? "Changer de projet" : "Rattacher à un projet"}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 4,
+              borderRadius: 5,
+              color: s.project_id ? C.navy : C.textMute,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = C.navy;
+              e.currentTarget.style.background = C.navyLight;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = s.project_id ? C.navy : C.textMute;
+              e.currentTarget.style.background = "none";
+            }}
+          >
+            <Icon name="target" size={13} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onArchive(s.id);
+            }}
+            title="Archiver"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 4,
+              borderRadius: 5,
+              color: C.textMute,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = C.navy;
+              e.currentTarget.style.background = C.navyLight;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = C.textMute;
+              e.currentTarget.style.background = "none";
+            }}
+          >
+            <Icon name="archive" size={13} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+
 export function Sidebar({
   sessions,
   archivedSessions,
@@ -149,7 +369,6 @@ export function Sidebar({
   onMobileClose,
 }: SidebarProps) {
   const isMobile = useIsMobile();
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [showArchives, setShowArchives] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -256,222 +475,17 @@ export function Sidebar({
             Pas encore de session. Démarrez-en une depuis le bouton ci-dessus.
           </div>
         )}
-        {sessions.map((s) => {
-          const isPanel = Array.isArray(s.panel_agent_ids) && s.panel_agent_ids.length > 1;
-          const agent = AGENTS[s.agent_id];
-          const meta = PROJECT_TYPES[s.project_type];
-          const project = s.project_id ? projectsById[s.project_id] : undefined;
-          const active = currentView === "chat" && s.id === activeSessionId;
-          const hovered = hoveredId === s.id;
-          return (
-            <div
-              key={s.id}
-              style={{ position: "relative", marginBottom: 2 }}
-              onMouseEnter={() => setHoveredId(s.id)}
-              onMouseLeave={() => setHoveredId(null)}
-            >
-              <button
-                onClick={() => onSelectSession(s.id)}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  gap: 8,
-                  padding: hovered ? "8px 58px 8px 10px" : "8px 10px",
-                  borderRadius: 8,
-                  border: "none",
-                  cursor: "pointer",
-                  background: active ? C.navyLight : hovered ? "#F1F5F9" : "transparent",
-                  textAlign: "left",
-                  fontFamily: "inherit",
-                  transition: "background 0.12s, padding 0.1s",
-                  alignItems: "flex-start",
-                }}
-              >
-                {isPanel ? (
-                  <div style={{ display: "flex", flexShrink: 0 }}>
-                    {(s.panel_agent_ids ?? []).slice(0, 3).map((id, i) => (
-                      <div
-                        key={id}
-                        style={{
-                          width: 20,
-                          height: 20,
-                          borderRadius: 5,
-                          background: AGENTS[id as AgentId]?.bg ?? C.bg,
-                          border: "1.5px solid white",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: 10,
-                          marginLeft: i > 0 ? -6 : 0,
-                          position: "relative",
-                          zIndex: 3 - i,
-                        }}
-                      >
-                        <Icon name={(AGENTS[id as AgentId]?.icon ?? "sparkles") as IconName} size={10} color={AGENTS[id as AgentId]?.color ?? C.text} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      width: 26,
-                      height: 26,
-                      borderRadius: 7,
-                      background: agent?.bg ?? C.bg,
-                      border: `1.5px solid ${agent?.color ?? C.border}25`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                      fontSize: 13,
-                    }}
-                  >
-                    <Icon name={(agent?.icon ?? "sparkles") as IconName} size={13} color={agent?.color ?? C.text} />
-                  </div>
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: active ? 700 : 600,
-                      color: C.text,
-                      lineHeight: 1.3,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                    }}
-                  >
-                    {s.title ?? "Nouvelle session"}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 10.5,
-                      color: meta?.color ?? C.textMute,
-                      fontWeight: 600,
-                      marginTop: 2,
-                    }}
-                  >
-                    {isPanel ? `Panel · ${s.panel_agent_ids?.length} agents` : agent?.name} · {formatRelative(s.updated_at)}
-                  </div>
-                  {project && (
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        maxWidth: "100%",
-                        marginTop: 4,
-                        padding: "1px 7px 1px 3px",
-                        borderRadius: 100,
-                        background: C.navyLight,
-                        border: `1px solid ${C.navy}22`,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 13,
-                          height: 13,
-                          borderRadius: 4,
-                          background: project.color ?? C.navy,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <Icon name={(project.icon ?? "target") as IconName} size={8} color="white" />
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 9.5,
-                          fontWeight: 700,
-                          color: C.navy,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {project.name}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </button>
-
-              {hovered && (
-                <div
-                  style={{
-                    position: "absolute",
-                    right: 4,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    display: "flex",
-                    gap: 1,
-                  }}
-                >
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onLinkSession(s.id);
-                    }}
-                    title={s.project_id ? "Changer de projet" : "Rattacher à un projet"}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 4,
-                      borderRadius: 5,
-                      color: s.project_id ? C.navy : C.textMute,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = C.navy;
-                      e.currentTarget.style.background = C.navyLight;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = s.project_id ? C.navy : C.textMute;
-                      e.currentTarget.style.background = "none";
-                    }}
-                  >
-                    <Icon name="target" size={13} />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onArchiveSession(s.id);
-                    }}
-                    title="Archiver"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 4,
-                      borderRadius: 5,
-                      color: C.textMute,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = C.navy;
-                      e.currentTarget.style.background = C.navyLight;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = C.textMute;
-                      e.currentTarget.style.background = "none";
-                    }}
-                  >
-                    <Icon name="archive" size={13} />
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {sessions.map((s) => (
+          <SessionRow
+            key={s.id}
+            s={s}
+            active={currentView === "chat" && s.id === activeSessionId}
+            project={s.project_id ? projectsById[s.project_id] : undefined}
+            onSelect={onSelectSession}
+            onLink={onLinkSession}
+            onArchive={onArchiveSession}
+          />
+        ))}
 
         {/* Archives section */}
         {archivedSessions.length > 0 && (

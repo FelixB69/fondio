@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
+import Image from "next/image";
 import { LuLoader, LuArrowLeft, LuCheck } from "react-icons/lu";
 import { FcGoogle } from "react-icons/fc";
 import { FaLinkedin } from "react-icons/fa";
@@ -49,7 +50,7 @@ function AuthBrand() {
       />
 
       <div style={{ marginBottom: 28, position: "relative" }}>
-        <img src="/fondio-logo.png" alt="Fondio" style={{ height: 68, width: "auto", display: "block" }} />
+        <Image src="/fondio-logo.png" alt="Fondio" width={790} height={272} priority style={{ height: 68, width: "auto", display: "block" }} />
       </div>
 
       <div style={{ position: "relative", marginBottom: 22 }}>
@@ -595,7 +596,7 @@ export function AuthScreen({
             flexShrink: 0,
           }}
         >
-          <img src="/fondio-logo.png" alt="Fondio" style={{ height: 68, width: "auto", display: "block" }} />
+          <Image src="/fondio-logo.png" alt="Fondio" width={790} height={272} priority style={{ height: 68, width: "auto", display: "block" }} />
           {(view === "login" || view === "signup") && (
             <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.55)", textAlign: "center", lineHeight: 1.5 }}>
               Vos conseillers IA spécialisés, en local.

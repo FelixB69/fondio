@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AGENTS, AgentId, ChatMessage, ProjectType, PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import { formatRelative } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
@@ -36,18 +37,6 @@ const FALLBACK_AGENT = {
   color: C.textMute,
   bg: C.bg,
 };
-
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.round(diff / 60000);
-  if (m < 1) return "À l'instant";
-  if (m < 60) return `Il y a ${m} min`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `Il y a ${h}h`;
-  const d = Math.round(h / 24);
-  if (d < 7) return `Il y a ${d}j`;
-  return new Date(iso).toLocaleDateString("fr-FR");
-}
 
 function downloadText(filename: string, content: string) {
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
@@ -351,7 +340,7 @@ export function LibraryScreen({
                         <Icon name={meta.icon as IconName} size={11} color={meta.color} /> {meta.name}
                       </span>
                       <span style={{ color: C.textMute }}>·</span>
-                      <span>{formatRelative(g.ts)}</span>
+                      <span>{formatRelative(g.ts, { absoluteAfterWeek: true })}</span>
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>

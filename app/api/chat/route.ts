@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import {
   AGENTS,
-  ARTIFACTS_FORMAT_PROMPT,
   buildSystemPrompt,
   type AgentId,
-  type Artifact,
   type ChatMessage,
   type ProjectType,
 } from "@/lib/data";
+import { generateArtifacts } from "@/lib/artifacts";
 import {
   callChatModel,
   callChatModelStream,
@@ -316,7 +315,8 @@ async function runWebResearch(
     const { data: turn, providerLabel } = await callModelWithTools(messages, [WEB_SEARCH_TOOL], {
       forceProvider: preferredProvider,
     });
-    if (step === 0) console.log(`[recherche] tool-calling via ${providerLabel}`);
+    if (step === 0 && process.env.NODE_ENV !== "production")
+      console.log(`[recherche] tool-calling via ${providerLabel}`);
     if (turn.toolCalls.length === 0) break; // le modèle estime avoir fini
 
     // On rejoue le message de l'assistant (avec ses demandes d'outils) : l'API a
@@ -334,7 +334,8 @@ async function runWebResearch(
       if (query) {
         // Visible dans le terminal `npm run dev` : tu vois l'agent chercher, et
         // parfois enchaîner plusieurs recherches au sein d'une même réponse.
-        console.log(`[web_search] étape ${step + 1} → "${query}"`);
+        if (process.env.NODE_ENV !== "production")
+          console.log(`[web_search] étape ${step + 1} → "${query}"`);
         const search = await searchWeb(query);
         for (const r of search.results) {
           collected.push({ title: r.title, url: r.url, content: r.content, score: r.score });
@@ -400,80 +401,5 @@ Si needSearch vaut false, mets "query": "".`;
     // En cas de pépin (JSON cassé, modèle indispo...), on n'enrichit pas : le
     // chat répond normalement, sans web. Une feature de confort ne casse rien.
     return null;
-  }
-}
-
-async function generateArtifacts(args: {
-  conversation: ChatMessage[];
-  assistantReply: string;
-  deliverableTitles: string[];
-  forceProvider?: "local" | "cloud";
-}): Promise<Artifact[]> {
-  const { conversation, assistantReply, deliverableTitles, forceProvider } = args;
-
-  // On ne renvoie que les ~6 derniers tours pour limiter le contexte.
-  const recent = conversation.slice(-6);
-  const transcript = recent
-    .map((m) => `${m.role === "user" ? "Utilisateur" : "Assistant"} : ${m.content}`)
-    .join("\n\n");
-
-  const userPrompt = `Conversation récente :
-
-${transcript}
-
-Dernière réponse de l'assistant :
-
-${assistantReply}
-
-L'assistant a annoncé ces livrables :
-${deliverableTitles.map((t) => `- ${t}`).join("\n")}
-
-Produis le contenu complet de chaque livrable au format JSON décrit.`;
-
-  try {
-    const { data: raw } = await callChatModel(
-      [
-        { role: "system", content: ARTIFACTS_FORMAT_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-      { jsonMode: true, useArtifactModel: true, forceProvider },
-    );
-    const parsed = JSON.parse(raw) as { artifacts?: unknown };
-    if (!Array.isArray(parsed.artifacts)) return [];
-
-    return parsed.artifacts.flatMap((a): Artifact[] => {
-      if (!a || typeof a !== "object") return [];
-      const obj = a as Record<string, unknown>;
-      const title = typeof obj.title === "string" && obj.title.trim() ? obj.title.trim() : "Livrable";
-
-      if (obj.kind === "table") {
-        const headers = Array.isArray(obj.headers)
-          ? obj.headers.map((h) => String(h ?? ""))
-          : [];
-        const rows = Array.isArray(obj.rows)
-          ? obj.rows
-              .filter((r): r is unknown[] => Array.isArray(r))
-              .map((r) => r.map((c) => String(c ?? "")))
-          : [];
-        if (!headers.length || !rows.length) return [];
-        // Normalise la longueur des lignes pour matcher headers.
-        const normalized = rows.map((r) => {
-          if (r.length === headers.length) return r;
-          if (r.length < headers.length) return [...r, ...Array(headers.length - r.length).fill("")];
-          return r.slice(0, headers.length);
-        });
-        return [{ kind: "table", title, headers, rows: normalized }];
-      }
-
-      if (obj.kind === "document") {
-        const markdown = typeof obj.markdown === "string" ? obj.markdown.trim() : "";
-        if (!markdown) return [];
-        return [{ kind: "document", title, markdown }];
-      }
-
-      return [];
-    });
-  } catch {
-    return [];
   }
 }
