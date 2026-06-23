@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { SWRConfig } from "swr";
 import { AppDataProvider, useAppData } from "@/components/AppDataProvider";
 import { hasSeenOnboarding, OnboardingTour } from "@/components/OnboardingTour";
 import { useEffect } from "react";
@@ -157,8 +158,13 @@ function AppShell({ children }: { children: ReactNode }) {
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <AppDataProvider>
-      <AppShell>{children}</AppShell>
-    </AppDataProvider>
+    // revalidateOnFocus désactivé : on garde le comportement actuel (pas de
+    // refetch automatique au retour sur l'onglet). Le cache est rafraîchi par
+    // les mutations optimistes et les `refresh()` explicites.
+    <SWRConfig value={{ revalidateOnFocus: false, revalidateOnReconnect: false }}>
+      <AppDataProvider>
+        <AppShell>{children}</AppShell>
+      </AppDataProvider>
+    </SWRConfig>
   );
 }

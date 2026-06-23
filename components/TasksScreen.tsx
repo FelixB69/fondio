@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AGENTS, AgentId, Task, TaskPriority } from "@/lib/data";
+import { useMemo, useState } from "react";
+import { AGENTS, AgentId, Task } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
-import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
+import { useTasks } from "@/lib/use-tasks";
 import {
   compareTasks,
   dueDateMeta,
@@ -22,25 +22,19 @@ import { Badge, EditableContent, FilterChips, TaskControls } from "./TaskBits";
 
 export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => void }) {
   const isMobile = useIsMobile();
-  const supabase = createClient();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState("");
   const [filter, setFilter] = useState<TaskFilter>("all");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const { data } = await supabase
-      .from("tasks")
-      .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
-      .order("created_at", { ascending: false });
-    setTasks((data ?? []) as Task[]);
-    setLoading(false);
-  }, [supabase]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const {
+    tasks,
+    loading,
+    addTask: createTask,
+    cycleStatus,
+    setPriority,
+    setDueDate,
+    setStartDate,
+    setContent,
+    removeTask,
+  } = useTasks();
 
   const grouped = useMemo(() => {
     const g: Record<string, Task[]> = { todo: [], doing: [], done: [] };
@@ -65,53 +59,8 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
   const addTask = async () => {
     const text = newTaskText.trim();
     if (!text) return;
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("tasks")
-      .insert({ user_id: user.id, content: text, status: "todo" })
-      .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
-      .single();
-    if (error || !data) return;
-    setTasks((p) => [data as Task, ...p]);
-    setNewTaskText("");
-  };
-
-  const cycleStatus = async (task: Task) => {
-    const next = NEXT_STATUS[task.status];
-    const completed_at = next === "done" ? new Date().toISOString() : null;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, status: next, completed_at } : t)));
-    await supabase.from("tasks").update({ status: next, completed_at }).eq("id", task.id);
-  };
-
-  const setPriority = async (task: Task, priority: TaskPriority) => {
-    if (task.priority === priority) return;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, priority } : t)));
-    await supabase.from("tasks").update({ priority }).eq("id", task.id);
-  };
-
-  // due_date null = on enlève l'échéance. L'input HTML renvoie "" → on le convertit en null.
-  const setDueDate = async (task: Task, due_date: string | null) => {
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, due_date } : t)));
-    await supabase.from("tasks").update({ due_date }).eq("id", task.id);
-  };
-
-  const setStartDate = async (task: Task, start_date: string | null) => {
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, start_date } : t)));
-    await supabase.from("tasks").update({ start_date }).eq("id", task.id);
-  };
-
-  const setContent = async (task: Task, content: string) => {
-    if (content === task.content) return;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, content } : t)));
-    await supabase.from("tasks").update({ content }).eq("id", task.id);
-  };
-
-  const removeTask = async (task: Task) => {
-    setTasks((p) => p.filter((t) => t.id !== task.id));
-    await supabase.from("tasks").delete().eq("id", task.id);
+    const created = await createTask({ content: text });
+    if (created) setNewTaskText("");
   };
 
   return (

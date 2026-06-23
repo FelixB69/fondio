@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AGENTS, AgentId, Task, TaskPriority, TaskStatus } from "@/lib/data";
+import { useEffect, useMemo, useState } from "react";
+import { AGENTS, AgentId, Task, TaskPriority } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
+import { useTasks } from "@/lib/use-tasks";
 import {
-  addDaysYmd,
   AgendaBucket,
   agendaBucket,
   AGENDA_BUCKETS,
@@ -27,36 +27,43 @@ type AgendaView = "timeline" | "list";
 
 export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) => void }) {
   const isMobile = useIsMobile();
-  const supabase = createClient();
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const supabase = useMemo(() => createClient(), []);
   const [projects, setProjects] = useState<Record<string, ProjectLite>>({});
-  const [loading, setLoading] = useState(true);
   const [view, setView] = useState<AgendaView>(isMobile ? "list" : "timeline");
   const [filters, setFilters] = useState<AgendaFilters>(EMPTY_AGENDA_FILTERS);
   // Tâche ouverte dans la popup d'édition. On garde l'id (pas l'objet) pour que
   // la popup reflète les mises à jour optimistes en relisant depuis `tasks`.
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    // On charge TOUTES les tâches (le toggle « terminées » et la timeline en ont besoin).
-    const [tasksRes, projRes] = await Promise.all([
-      supabase
-        .from("tasks")
-        .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
-        .order("due_date", { ascending: true }),
-      supabase.from("projects").select("id, name, icon, color"),
-    ]);
-    setTasks((tasksRes.data ?? []) as Task[]);
-    const map: Record<string, ProjectLite> = {};
-    for (const p of (projRes.data ?? []) as ProjectLite[]) map[p.id] = p;
-    setProjects(map);
-    setLoading(false);
-  }, [supabase]);
+  // Tâches via le cache SWR partagé (mêmes données que les écrans Tâches/Projet) :
+  // un seul fetch réseau, et toute mutation s'y répercute instantanément.
+  const {
+    tasks,
+    loading,
+    addTask,
+    setStatus,
+    removeTask,
+    setPriority,
+    setDueDate,
+    setStartDate,
+    setContent,
+    shiftDates,
+  } = useTasks();
 
+  // Les projets servent aux libellés et aux filtres ; chargés une seule fois.
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("projects").select("id, name, icon, color");
+      if (cancelled) return;
+      const map: Record<string, ProjectLite> = {};
+      for (const p of (data ?? []) as ProjectLite[]) map[p.id] = p;
+      setProjects(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   const filtered = useMemo(() => tasks.filter((t) => matchesAgenda(t, filters)), [tasks, filters]);
   const editingTask = useMemo(() => tasks.find((t) => t.id === editingTaskId) ?? null, [tasks, editingTaskId]);
@@ -89,69 +96,13 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
     return [...ids];
   }, [tasks]);
 
-  // ---- Mutations (optimistic + persistance) ------------------------------
-  const patch = (id: string, fields: Partial<Task>) =>
-    setTasks((p) => p.map((t) => (t.id === id ? { ...t, ...fields } : t)));
-
-  // Change le statut (todo/doing/done). `completed_at` suit le statut : posé en
-  // passant à « fait », effacé en revenant en arrière.
-  const setStatus = async (task: Task, status: TaskStatus) => {
-    if (task.status === status) return;
-    const completed_at = status === "done" ? new Date().toISOString() : null;
-    patch(task.id, { status, completed_at });
-    await supabase.from("tasks").update({ status, completed_at }).eq("id", task.id);
-  };
-
+  // setStatus / setPriority / setDueDate / setStartDate / setContent / shiftDates /
+  // removeTask / addTask viennent de useTasks (optimistic + cache partagé).
+  // Alias locaux conservant l'API attendue par le JSX et la popup d'édition.
   const complete = (task: Task) => setStatus(task, "done");
-
-  const deleteTask = async (task: Task) => {
-    setTasks((p) => p.filter((t) => t.id !== task.id));
+  const deleteTask = (task: Task) => {
     setEditingTaskId(null);
-    await supabase.from("tasks").delete().eq("id", task.id);
-  };
-
-  const setPriority = async (task: Task, priority: TaskPriority) => {
-    if (task.priority === priority) return;
-    patch(task.id, { priority });
-    await supabase.from("tasks").update({ priority }).eq("id", task.id);
-  };
-
-  const setDueDate = async (task: Task, due_date: string | null) => {
-    patch(task.id, { due_date });
-    await supabase.from("tasks").update({ due_date }).eq("id", task.id);
-  };
-
-  const setStartDate = async (task: Task, start_date: string | null) => {
-    patch(task.id, { start_date });
-    await supabase.from("tasks").update({ start_date }).eq("id", task.id);
-  };
-
-  const setContent = async (task: Task, content: string) => {
-    if (content === task.content) return;
-    patch(task.id, { content });
-    await supabase.from("tasks").update({ content }).eq("id", task.id);
-  };
-
-  // Décale start ET due (celles présentes) du même nombre de jours — drag de barre.
-  const shiftDates = async (task: Task, deltaDays: number) => {
-    const start_date = task.start_date ? addDaysYmd(task.start_date, deltaDays) : null;
-    const due_date = task.due_date ? addDaysYmd(task.due_date, deltaDays) : null;
-    patch(task.id, { start_date, due_date });
-    await supabase.from("tasks").update({ start_date, due_date }).eq("id", task.id);
-  };
-
-  const addTask = async (input: { content: string; due_date: string; project_id: string | null }) => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("tasks")
-      .insert({ user_id: user.id, content: input.content, status: "todo", due_date: input.due_date, project_id: input.project_id })
-      .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
-      .single();
-    if (error || !data) return;
-    setTasks((p) => [data as Task, ...p]);
+    return removeTask(task);
   };
 
   return (

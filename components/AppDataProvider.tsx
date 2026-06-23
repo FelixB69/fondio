@@ -2,8 +2,10 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AgentId, ChatMessage, ProjectType } from "@/lib/data";
+import useSWR from "swr";
+import { AgentId, ChatMessage, ProjectType, Task } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllTasks, TASKS_KEY } from "@/lib/use-tasks";
 import { SessionListItem } from "./Sidebar";
 
 export interface SessionFull {
@@ -70,9 +72,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<SessionListItem[]>([]);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
-  const [taskOpenCount, setTaskOpenCount] = useState(0);
   const [userEmail, setUserEmail] = useState<string | undefined>();
   const [linkingSessionId, setLinkingSessionId] = useState<string | null>(null);
+
+  // Compteur de tâches ouvertes dérivé du cache SWR partagé (clé `"tasks"`) :
+  // même source que les écrans Tâches/Agenda/Projet, donc le badge de la sidebar
+  // se met à jour instantanément à chaque mutation (création, passage à « fait »…).
+  const { data: allTasks, mutate: mutateTasks } = useSWR<Task[]>(TASKS_KEY, fetchAllTasks);
+  const taskOpenCount = useMemo(
+    () => (allTasks ?? []).filter((t) => t.status !== "done").length,
+    [allTasks],
+  );
 
   // Index id → projet, recalculé seulement quand la liste change.
   const projectsById = useMemo(() => {
@@ -107,13 +117,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setProjects((data ?? []) as ProjectLite[]);
   }, [supabase]);
 
+  // Rafraîchit le cache partagé des tâches (le compteur en est dérivé).
   const loadTaskCount = useCallback(async () => {
-    const { count } = await supabase
-      .from("tasks")
-      .select("id", { count: "exact", head: true })
-      .neq("status", "done");
-    setTaskOpenCount(count ?? 0);
-  }, [supabase]);
+    await mutateTasks();
+  }, [mutateTasks]);
 
   useEffect(() => {
     (async () => {

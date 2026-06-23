@@ -6,6 +6,7 @@ import { C } from "@/lib/design-tokens";
 import { computeStats, Project, ProjectStats, STAGES, StageId } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
+import { useTasks } from "@/lib/use-tasks";
 import {
   compareTasks,
   dueDateMeta,
@@ -47,26 +48,38 @@ export function ProjectDetailScreen({
   const isMobile = useIsMobile();
   const supabase = createClient();
   const [project, setProject] = useState<Project | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [projectLoading, setProjectLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState("");
   const [view, setView] = useState<ViewMode>(isMobile ? "list" : "kanban");
   const [filter, setFilter] = useState<TaskFilter>("all");
 
+  // Tâches du projet via le cache SWR global (filtré côté client sur project_id) :
+  // partagé avec les écrans Tâches/Agenda, et addTask rattache au projet courant.
+  const {
+    tasks,
+    loading: tasksLoading,
+    addTask: createTask,
+    cycleStatus,
+    setStatus,
+    removeTask,
+    setPriority,
+    setDueDate,
+    setStartDate,
+    setContent,
+  } = useTasks({ projectId });
+
+  // Indicateur de chargement unique : projet + sessions + tâches.
+  const loading = projectLoading || tasksLoading;
+
   const load = useCallback(async () => {
-    setLoading(true);
-    const [projRes, tasksRes, sessRes] = await Promise.all([
+    setProjectLoading(true);
+    const [projRes, sessRes] = await Promise.all([
       supabase
         .from("projects")
         .select("id, name, icon, color, project_type, stage, created_at, updated_at")
         .eq("id", projectId)
         .single(),
-      supabase
-        .from("tasks")
-        .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
-        .eq("project_id", projectId)
-        .order("created_at", { ascending: false }),
       supabase
         .from("sessions")
         .select("id, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids")
@@ -75,9 +88,8 @@ export function ProjectDetailScreen({
         .order("updated_at", { ascending: false }),
     ]);
     setProject((projRes.data as Project) ?? null);
-    setTasks((tasksRes.data ?? []) as Task[]);
     setSessions((sessRes.data ?? []) as SessionRow[]);
-    setLoading(false);
+    setProjectLoading(false);
   }, [supabase, projectId]);
 
   useEffect(() => {
@@ -115,63 +127,13 @@ export function ProjectDetailScreen({
     setProject((p) => (p ? { ...p, stage } : null));
   };
 
+  // Création depuis le champ rapide ; le rattachement au projet est géré par useTasks
+  // (scope projectId). Les autres mutations viennent directement du hook.
   const addTask = async () => {
     const text = newTaskText.trim();
     if (!text) return;
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("tasks")
-      .insert({ user_id: user.id, project_id: projectId, content: text, status: "todo" })
-      .select("id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at")
-      .single();
-    if (error || !data) return;
-    setTasks((p) => [data as Task, ...p]);
-    setNewTaskText("");
-  };
-
-  const cycleStatus = async (task: Task) => {
-    const next = NEXT_STATUS[task.status];
-    const completed_at = next === "done" ? new Date().toISOString() : null;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, status: next, completed_at } : t)));
-    await supabase.from("tasks").update({ status: next, completed_at }).eq("id", task.id);
-  };
-
-  const setStatus = async (task: Task, status: TaskStatus) => {
-    if (task.status === status) return;
-    const completed_at = status === "done" ? new Date().toISOString() : null;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, status, completed_at } : t)));
-    await supabase.from("tasks").update({ status, completed_at }).eq("id", task.id);
-  };
-
-  const removeTask = async (task: Task) => {
-    setTasks((p) => p.filter((t) => t.id !== task.id));
-    await supabase.from("tasks").delete().eq("id", task.id);
-  };
-
-  const setPriority = async (task: Task, priority: TaskPriority) => {
-    if (task.priority === priority) return;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, priority } : t)));
-    await supabase.from("tasks").update({ priority }).eq("id", task.id);
-  };
-
-  // due_date null = on enlève l'échéance. L'input HTML renvoie "" → on le convertit en null.
-  const setDueDate = async (task: Task, due_date: string | null) => {
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, due_date } : t)));
-    await supabase.from("tasks").update({ due_date }).eq("id", task.id);
-  };
-
-  const setStartDate = async (task: Task, start_date: string | null) => {
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, start_date } : t)));
-    await supabase.from("tasks").update({ start_date }).eq("id", task.id);
-  };
-
-  const setContent = async (task: Task, content: string) => {
-    if (content === task.content) return;
-    setTasks((p) => p.map((t) => (t.id === task.id ? { ...t, content } : t)));
-    await supabase.from("tasks").update({ content }).eq("id", task.id);
+    const created = await createTask({ content: text });
+    if (created) setNewTaskText("");
   };
 
   if (!loading && !project) {
