@@ -255,7 +255,7 @@ describe("Anthropic adapter — callAnthropicJson", () => {
         { role: "user", content: "Salut" },
       ],
       "sk-ant-test",
-      "claude-sonnet-4-5-20250929",
+      "claude-sonnet-4-6",
     );
 
     expect(result).toBe("Bonjour");
@@ -271,7 +271,7 @@ describe("Anthropic adapter — callAnthropicJson", () => {
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce({ ok: false, status: 401, text: async () => "invalid key" });
     await expect(
-      callAnthropicJson([{ role: "user", content: "x" }], "bad-key", "claude-sonnet-4-5-20250929"),
+      callAnthropicJson([{ role: "user", content: "x" }], "bad-key", "claude-sonnet-4-6"),
     ).rejects.toThrow(/401/);
   });
 });
@@ -310,7 +310,7 @@ export interface BYOKConfig {
 }
 
 const ANTHROPIC_API_VERSION = "2023-06-01";
-const ANTHROPIC_MAX_TOKENS = 4096;
+const ANTHROPIC_MAX_TOKENS = 8192;
 
 // Anthropic veut le system prompt à part (pas dans le tableau messages).
 function splitSystemMessage(messages: LLMMessage[]): { system: string; rest: LLMMessage[] } {
@@ -998,7 +998,7 @@ In `lib/llm.ts`, after the Google adapter block from Task 5, add the dispatch la
 
 ```typescript
 const BYOK_MODELS: Record<BYOKProviderId, { chat: string; artifact: string; label: string }> = {
-  anthropic: { chat: "claude-sonnet-4-5-20250929", artifact: "claude-sonnet-4-5-20250929", label: "Claude Sonnet" },
+  anthropic: { chat: "claude-sonnet-4-6", artifact: "claude-sonnet-4-6", label: "Claude Sonnet" },
   openai: { chat: "gpt-4o-mini", artifact: "gpt-4o-mini", label: "GPT-4o mini" },
   google: { chat: "gemini-2.0-flash", artifact: "gemini-2.0-flash", label: "Gemini Flash" },
   mistral_byok: { chat: "mistral-small-latest", artifact: "codestral-latest", label: "Mistral Small" },
@@ -1266,7 +1266,7 @@ import { prettyModelName, providerPrivacyNote } from "./models";
 
 describe("prettyModelName — nouvelles familles BYOK", () => {
   it("reconnaît Claude", () => {
-    expect(prettyModelName("claude-sonnet-4-5-20250929")).toBe("Claude Sonnet");
+    expect(prettyModelName("claude-sonnet-4-6")).toBe("Claude Sonnet");
   });
   it("reconnaît GPT", () => {
     expect(prettyModelName("gpt-4o-mini")).toBe("GPT-4o mini");

@@ -79,7 +79,7 @@ Un modèle fixe par fournisseur BYOK pour la v1 (pas de sélecteur) :
 
 | Fournisseur | Modèle par défaut (chat + artifact) |
 |---|---|
-| Anthropic | `claude-sonnet-4-5` (ou dernier Sonnet stable) |
+| Anthropic | `claude-sonnet-4-6` (ID sans suffixe de date — bon équilibre coût/qualité) |
 | OpenAI | `gpt-4o-mini` |
 | Google | `gemini-2.0-flash` |
 | Mistral (BYOK) | `mistral-small-latest` (même modèle que le Mistral Fondio) |
