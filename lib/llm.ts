@@ -1,6 +1,8 @@
 // Abstraction des appels LLM : tente Ollama en local, bascule sur Mistral
 // (API EU, tier gratuit) si Ollama est injoignable ou si le modèle n'existe pas.
 
+import { modelLabel } from "./models";
+
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3";
 const OLLAMA_ARTIFACT_MODEL = process.env.OLLAMA_ARTIFACT_MODEL ?? "qwen2.5-coder:7b";
@@ -34,14 +36,26 @@ export interface LLMResult<T> {
   data: T;
 }
 
+// Libellés affichés à l'utilisateur : on délègue l'embellissement au registre
+// central (lib/models.ts) pour n'avoir qu'UN seul endroit qui nomme les modèles.
 function localLabel(opts?: CallOptions): string {
-  const model = pickOllamaModel(opts);
-  return `${model} (local)`;
+  return modelLabel(pickOllamaModel(opts), "local");
 }
 
 function cloudLabel(opts?: CallOptions): string {
-  return `${pickMistralModel(opts)} (cloud)`;
+  return modelLabel(pickMistralModel(opts), "cloud");
 }
+
+// Config réelle des modèles, exposée pour que /api/ollama-status la renvoie au
+// client (qui affiche alors EXACTEMENT ce qui tourne, env personnalisé compris).
+export const MODELS = {
+  local: { chat: OLLAMA_MODEL, artifact: OLLAMA_ARTIFACT_MODEL, tool: OLLAMA_TOOL_MODEL },
+  cloud: {
+    chat: MISTRAL_MODEL,
+    artifact: MISTRAL_ARTIFACT_MODEL,
+    configured: Boolean(MISTRAL_API_KEY),
+  },
+} as const;
 
 function isOllamaUnavailable(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
@@ -315,17 +329,17 @@ export async function callModelWithTools(
 ): Promise<LLMResult<ToolTurnResult>> {
   if (opts?.forceProvider === "cloud") {
     const data = await callMistralTools(messages, tools);
-    return { provider: "cloud", providerLabel: `${MISTRAL_MODEL} (cloud)`, data };
+    return { provider: "cloud", providerLabel: modelLabel(MISTRAL_MODEL, "cloud"), data };
   }
   try {
     const data = await callOllamaTools(messages, tools);
-    return { provider: "local", providerLabel: `${OLLAMA_TOOL_MODEL} (local)`, data };
+    return { provider: "local", providerLabel: modelLabel(OLLAMA_TOOL_MODEL, "local"), data };
   } catch (e) {
     // Si l'utilisateur a forcé "local", on ne triche pas : on remonte l'erreur.
     if (opts?.forceProvider === "local") throw e;
     // Sinon (Ollama injoignable, modèle non installé ou incompatible outils) → cloud.
     const data = await callMistralTools(messages, tools);
-    return { provider: "cloud", providerLabel: `${MISTRAL_MODEL} (cloud)`, data };
+    return { provider: "cloud", providerLabel: modelLabel(MISTRAL_MODEL, "cloud"), data };
   }
 }
 

@@ -1,12 +1,31 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { marked } from "marked";
-import { AGENTS, Agent, AgentId, Artifact, ChatMessage, ProjectType, PROJECT_TYPES, SYNTHESIS_META } from "@/lib/data";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  AGENTS,
+  Agent,
+  AgentId,
+  ChatMessage,
+  ProjectType,
+  PROJECT_TYPES,
+  SYNTHESIS_META,
+} from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import { type ModelStatus } from "@/lib/models";
+import { stripTrailingSections } from "@/lib/parse-agent-reply";
+import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import type { ProjectLite } from "./AppDataProvider";
+import { ArtifactBlock } from "./Artifact";
 import { Icon, IconName } from "./Icon";
+import { ModelSelector } from "./ModelSelector";
 import { ProjectLinkButton } from "./ProjectLinkButton";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -15,13 +34,6 @@ interface PanelRound {
   userMessage: ChatMessage;
   agentReplies: ChatMessage[];
   synthesis: ChatMessage | null;
-}
-
-type AgentLoadStatus = "waiting" | "loading" | "done";
-
-interface AgentLoadState {
-  agentId: AgentId | "__synthesis__";
-  status: AgentLoadStatus;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -57,6 +69,14 @@ function formatTs(iso: string): string {
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 // Découpe le contenu en phrases et surligne celles qui mentionnent un agent
@@ -113,69 +133,6 @@ function renderWithMentions(content: string, refAgents: Agent[]): ReactNode {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function ArtifactMarkdown({ markdown }: { markdown: string }) {
-  const html = marked.parse(markdown, { async: false }) as string;
-  return (
-    <div
-      className="fnd-md"
-      style={{
-        background: C.white,
-        borderRadius: 6,
-        padding: "10px 14px",
-        fontSize: 13,
-        color: C.text,
-        lineHeight: 1.6,
-      }}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
-}
-
-function ArtifactTable({ headers, rows, color }: { headers: string[]; rows: string[][]; color: string }) {
-  return (
-    <div style={{ overflowX: "auto", background: C.white, borderRadius: 6 }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, color: C.text }}>
-        <thead>
-          <tr style={{ background: `${color}12` }}>
-            {headers.map((h, i) => (
-              <th key={i} style={{ padding: "7px 10px", textAlign: "left", fontSize: 11.5, fontWeight: 700, color, borderBottom: `1px solid ${color}28`, whiteSpace: "nowrap" }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-              {r.map((c, j) => (
-                <td key={j} style={{ padding: "6px 10px", verticalAlign: "top", lineHeight: 1.5 }}>{c}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ArtifactBlock({ artifact, color, bg }: { artifact: Artifact; color: string; bg: string }) {
-  return (
-    <div style={{ marginTop: 10, background: bg, border: `1px solid ${color}28`, borderRadius: 8, padding: "10px 12px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-        <Icon name={artifact.kind === "table" ? "chart" : "tasks"} size={11} color={color} />
-        <div style={{ fontSize: 11.5, fontWeight: 800, color, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          {artifact.title}
-        </div>
-      </div>
-      {artifact.kind === "table" ? (
-        <ArtifactTable headers={artifact.headers} rows={artifact.rows} color={color} />
-      ) : (
-        <ArtifactMarkdown markdown={artifact.markdown} />
-      )}
-    </div>
-  );
-}
-
 function TypingDots({ color, label }: { color: string; label: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px" }}>
@@ -198,13 +155,7 @@ function TypingDots({ color, label }: { color: string; label: string }) {
   );
 }
 
-function ProviderBadge({
-  provider,
-  label,
-}: {
-  provider: "local" | "cloud";
-  label?: string;
-}) {
+function ProviderBadge({ provider, label }: { provider: "local" | "cloud"; label?: string }) {
   const isCloud = provider === "cloud";
   const color = isCloud ? "#D97706" : "#16A34A";
   const icon = isCloud ? "☁" : "●";
@@ -216,18 +167,45 @@ function ProviderBadge({
           ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
           : "Réponse générée par votre modèle Ollama local."
       }
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 10.5,
-        color,
-        fontWeight: 600,
-      }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, color, fontWeight: 600 }}
     >
       <span style={{ fontSize: isCloud ? 11 : 7, lineHeight: 1 }}>{icon}</span>
       {text}
     </span>
+  );
+}
+
+function CopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(content);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          /* clipboard refusé */
+        }
+      }}
+      title="Copier"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        background: "transparent",
+        border: "none",
+        color: copied ? "#0E9F88" : C.textMute,
+        fontSize: 10.5,
+        fontWeight: 600,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        padding: "0 2px",
+      }}
+    >
+      <Icon name={copied ? "check" : "copy"} size={10} color={copied ? "#0E9F88" : C.textMute} />
+      {copied ? "Copié" : "Copier"}
+    </button>
   );
 }
 
@@ -240,16 +218,137 @@ function WaitingIndicator({ label }: { label: string }) {
   );
 }
 
+function SourcesBlock({ sources }: { sources?: { title: string; url: string }[] }) {
+  if (!sources || sources.length === 0) return null;
+  return (
+    <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: C.textMute }}>Sources :</span>
+      {sources.map((s, i) => (
+        <a
+          key={i}
+          href={s.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={s.title}
+          style={{
+            fontSize: 11,
+            color: C.navy,
+            background: C.navyLight,
+            borderRadius: 6,
+            padding: "2px 8px",
+            textDecoration: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {i + 1}. {hostname(s.url)}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+// Liste de livrables/challenges avec bouton « convertir en tâche ».
+function DeliverablesBlock({
+  label,
+  icon,
+  items,
+  color,
+  bg,
+  onConvertToTask,
+  taskedItems,
+}: {
+  label: string;
+  icon: IconName;
+  items: string[];
+  color: string;
+  bg: string;
+  onConvertToTask?: (text: string) => void;
+  taskedItems?: Set<string>;
+}) {
+  if (!items.length) return null;
+  return (
+    <div style={{ marginTop: 10, background: bg, border: `1px solid ${color}28`, borderRadius: 8, padding: "10px 12px" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 10.5,
+          fontWeight: 800,
+          color,
+          letterSpacing: "0.07em",
+          textTransform: "uppercase",
+          marginBottom: 8,
+        }}
+      >
+        <Icon name={icon} size={11} color={color} />
+        {label}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {items.map((item, i) => {
+          const tasked = taskedItems?.has(item);
+          return (
+            <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, color: C.text, lineHeight: 1.5, alignItems: "flex-start" }}>
+              <span style={{ color, fontWeight: 800, flexShrink: 0 }}>→</span>
+              <span style={{ flex: 1 }}>{item}</span>
+              {onConvertToTask && (
+                <button
+                  onClick={() => !tasked && onConvertToTask(item)}
+                  disabled={tasked}
+                  title={tasked ? "Déjà ajouté aux tâches" : "Convertir en tâche"}
+                  style={{
+                    background: tasked ? "transparent" : C.white,
+                    color: tasked ? "#0E9F88" : color,
+                    border: tasked ? "none" : `1px solid ${color}40`,
+                    borderRadius: 5,
+                    padding: tasked ? "2px 0" : "2px 7px",
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    cursor: tasked ? "default" : "pointer",
+                    fontFamily: "inherit",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                    flexShrink: 0,
+                    marginTop: 1,
+                  }}
+                >
+                  {tasked ? (
+                    <>
+                      <Icon name="check" size={9} color="#0E9F88" /> Tâche
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="plus" size={9} color={color} /> Tâche
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AgentReplyBubble({
   msg,
   agentId,
   otherAgents,
+  onConvertToTask,
+  taskedItems,
+  streaming = false,
 }: {
   msg: ChatMessage;
   agentId: AgentId;
   otherAgents: Agent[];
+  onConvertToTask?: (text: string, agentId: AgentId) => void;
+  taskedItems?: Set<string>;
+  streaming?: boolean;
 }) {
   const agent = AGENTS[agentId];
+  const convert = onConvertToTask ? (text: string) => onConvertToTask(text, agentId) : undefined;
   return (
     <div style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
       <div
@@ -275,12 +374,17 @@ function AgentReplyBubble({
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: agent.color }}>{agent.firstName}</span>
-          <span style={{ fontSize: 10.5, color: C.textMute }}>{formatTs(msg.ts)}</span>
+          {!streaming && <span style={{ fontSize: 10.5, color: C.textMute }}>{formatTs(msg.ts)}</span>}
           {msg.provider && (
             <>
               <span style={{ fontSize: 10, color: C.textMute }}>·</span>
               <ProviderBadge provider={msg.provider} label={msg.providerLabel} />
             </>
+          )}
+          {!streaming && msg.content && (
+            <span style={{ marginLeft: "auto" }}>
+              <CopyButton content={msg.content} />
+            </span>
           )}
         </div>
         <div
@@ -294,17 +398,57 @@ function AgentReplyBubble({
         >
           <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.85, whiteSpace: "pre-wrap" }}>
             {renderWithMentions(msg.content, otherAgents)}
+            {streaming && <span className="fnd-caret">▍</span>}
           </div>
-          {msg.artifacts?.map((a, i) => (
-            <ArtifactBlock key={i} artifact={a} color={agent.color} bg={agent.bg} />
-          ))}
+          {msg.artifacts && msg.artifacts.length > 0 ? (
+            msg.artifacts.map((a, i) => (
+              <ArtifactBlock
+                key={i}
+                artifact={a}
+                color={agent.color}
+                bg={agent.bg}
+                onConvertToTask={convert}
+                tasked={taskedItems?.has(a.title)}
+              />
+            ))
+          ) : (
+            <DeliverablesBlock
+              label="Livrables"
+              icon="tasks"
+              items={msg.deliverables ?? []}
+              color={agent.color}
+              bg={agent.bg}
+              onConvertToTask={convert}
+              taskedItems={taskedItems}
+            />
+          )}
+          <DeliverablesBlock
+            label="⚡ Questions difficiles"
+            icon="zap"
+            items={msg.challenges ?? []}
+            color="#D97706"
+            bg="#FFFBEB"
+          />
+          <SourcesBlock sources={msg.sources} />
         </div>
       </div>
     </div>
   );
 }
 
-function SynthesisBubble({ msg, panelAgents }: { msg: ChatMessage; panelAgents: Agent[] }) {
+function SynthesisBubble({
+  msg,
+  panelAgents,
+  onConvertToTask,
+  taskedItems,
+  streaming = false,
+}: {
+  msg: ChatMessage;
+  panelAgents: Agent[];
+  onConvertToTask?: (text: string) => void;
+  taskedItems?: Set<string>;
+  streaming?: boolean;
+}) {
   return (
     <div
       style={{
@@ -327,10 +471,14 @@ function SynthesisBubble({ msg, panelAgents }: { msg: ChatMessage; panelAgents: 
             <ProviderBadge provider={msg.provider} label={msg.providerLabel} />
           </>
         )}
-        <span style={{ fontSize: 10.5, color: C.textMute, marginLeft: "auto" }}>{formatTs(msg.ts)}</span>
+        {!streaming && (
+          <span style={{ fontSize: 10.5, color: C.textMute, marginLeft: "auto" }}>{formatTs(msg.ts)}</span>
+        )}
+        {!streaming && msg.content && <CopyButton content={msg.content} />}
       </div>
       <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.85, whiteSpace: "pre-wrap" }}>
         {renderWithMentions(msg.content, panelAgents)}
+        {streaming && <span className="fnd-caret">▍</span>}
       </div>
       {msg.deliverables && msg.deliverables.length > 0 && (
         <div
@@ -342,16 +490,61 @@ function SynthesisBubble({ msg, panelAgents }: { msg: ChatMessage; panelAgents: 
             padding: "10px 12px",
           }}
         >
-          <div style={{ fontSize: 10.5, fontWeight: 800, color: SYNTHESIS_META.color, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 8 }}>
+          <div
+            style={{
+              fontSize: 10.5,
+              fontWeight: 800,
+              color: SYNTHESIS_META.color,
+              letterSpacing: "0.07em",
+              textTransform: "uppercase",
+              marginBottom: 8,
+            }}
+          >
             Recommandations
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            {msg.deliverables.map((d, i) => (
-              <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, color: C.text, lineHeight: 1.5 }}>
-                <span style={{ color: SYNTHESIS_META.color, fontWeight: 800, flexShrink: 0 }}>→</span>
-                <span>{d}</span>
-              </div>
-            ))}
+            {msg.deliverables.map((d, i) => {
+              const tasked = taskedItems?.has(d);
+              return (
+                <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, color: C.text, lineHeight: 1.5, alignItems: "flex-start" }}>
+                  <span style={{ color: SYNTHESIS_META.color, fontWeight: 800, flexShrink: 0 }}>→</span>
+                  <span style={{ flex: 1 }}>{d}</span>
+                  {onConvertToTask && (
+                    <button
+                      onClick={() => !tasked && onConvertToTask(d)}
+                      disabled={tasked}
+                      title={tasked ? "Déjà ajouté aux tâches" : "Convertir en tâche"}
+                      style={{
+                        background: tasked ? "transparent" : C.white,
+                        color: tasked ? "#0E9F88" : SYNTHESIS_META.color,
+                        border: tasked ? "none" : `1px solid ${SYNTHESIS_META.color}40`,
+                        borderRadius: 5,
+                        padding: tasked ? "2px 0" : "2px 7px",
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        cursor: tasked ? "default" : "pointer",
+                        fontFamily: "inherit",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 3,
+                        flexShrink: 0,
+                        marginTop: 1,
+                      }}
+                    >
+                      {tasked ? (
+                        <>
+                          <Icon name="check" size={9} color="#0E9F88" /> Tâche
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="plus" size={9} color={SYNTHESIS_META.color} /> Tâche
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -362,9 +555,13 @@ function SynthesisBubble({ msg, panelAgents }: { msg: ChatMessage; panelAgents: 
 function PanelRoundDisplay({
   round,
   panelAgentIds,
+  onConvertToTask,
+  taskedItems,
 }: {
   round: PanelRound;
   panelAgentIds: AgentId[];
+  onConvertToTask: (text: string, agentId: AgentId) => void;
+  taskedItems: Set<string>;
 }) {
   const panelAgents = panelAgentIds.map((id) => AGENTS[id]);
   return (
@@ -402,7 +599,6 @@ function PanelRoundDisplay({
         {round.agentReplies.map((reply, i) => {
           if (!reply.agentId || reply.agentId === "__synthesis__") return null;
           const speakerId = reply.agentId as AgentId;
-          // Pour cet agent : on surligne les mentions des AUTRES agents du panel.
           const others = panelAgents.filter((a) => a.id !== speakerId);
           return (
             <AgentReplyBubble
@@ -410,14 +606,96 @@ function PanelRoundDisplay({
               msg={reply}
               agentId={speakerId}
               otherAgents={others}
+              onConvertToTask={onConvertToTask}
+              taskedItems={taskedItems}
             />
           );
         })}
       </div>
 
       {/* Synthesis */}
-      {round.synthesis && <SynthesisBubble msg={round.synthesis} panelAgents={panelAgents} />}
+      {round.synthesis && (
+        <SynthesisBubble
+          msg={round.synthesis}
+          panelAgents={panelAgents}
+          onConvertToTask={(text) => onConvertToTask(text, panelAgentIds[0])}
+          taskedItems={taskedItems}
+        />
+      )}
     </div>
+  );
+}
+
+// Bouton pilule réutilisable (Challenger / Recherche web).
+function HeaderToggle({
+  active,
+  onClick,
+  icon,
+  label,
+  colorOn,
+  bgOn,
+  title,
+  compact,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: IconName;
+  label: string;
+  colorOn: string;
+  bgOn: string;
+  title: string;
+  compact: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: compact ? 0 : 7,
+        border: `1.5px solid ${active ? colorOn : C.border}`,
+        background: active ? bgOn : C.white,
+        color: active ? colorOn : C.textSub,
+        borderRadius: 100,
+        padding: compact ? "6px" : "5px 11px 5px 9px",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 700,
+        fontFamily: "inherit",
+        transition: "all 0.15s",
+      }}
+    >
+      <Icon name={icon} size={12} color={active ? colorOn : C.textSub} />
+      {!compact && (
+        <>
+          {label}
+          <span
+            style={{
+              width: 26,
+              height: 14,
+              borderRadius: 100,
+              background: active ? colorOn : C.border,
+              position: "relative",
+              transition: "background 0.2s",
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                top: 2,
+                left: active ? 14 : 2,
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: "white",
+                transition: "left 0.2s",
+              }}
+            />
+          </span>
+        </>
+      )}
+    </button>
   );
 }
 
@@ -430,6 +708,7 @@ interface MultiAgentSessionProps {
   projectId?: string | null;
   project?: ProjectLite | null;
   initialMessages: ChatMessage[];
+  initialChallenger?: boolean;
   onBack: () => void;
   onTitleChange?: (title: string) => void;
   onLinkProject?: () => void;
@@ -441,137 +720,261 @@ export function MultiAgentSession({
   projectType,
   project = null,
   initialMessages,
+  initialChallenger = false,
   onBack,
   onTitleChange,
   onLinkProject,
 }: MultiAgentSessionProps) {
   const isMobile = useIsMobile();
+  const supabase = createClient();
   const typeMeta = PROJECT_TYPES[projectType];
+  const panelAgents = panelAgentIds.map((id) => AGENTS[id]);
 
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
-  const [loadStates, setLoadStates] = useState<AgentLoadState[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Réglages partagés avec le chat simple.
+  const [preferredProvider, setPreferredProvider] = useState<"local" | "cloud">("cloud");
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [statusRefreshing, setStatusRefreshing] = useState(false);
+  const [challenger, setChallenger] = useState(initialChallenger);
+  const [webSearch, setWebSearch] = useState(false);
+  const [taskedItems, setTaskedItems] = useState<Set<string>>(new Set());
+
+  // État du round en cours de streaming.
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [liveUser, setLiveUser] = useState<string | null>(null);
+  const [liveReplies, setLiveReplies] = useState<ChatMessage[]>([]);
+  const [liveSynthesis, setLiveSynthesis] = useState<ChatMessage | null>(null);
+  const [streamingAgentId, setStreamingAgentId] = useState<AgentId | "__synthesis__" | null>(null);
+  const [streamingContent, setStreamingContent] = useState("");
+  const [streamingProvider, setStreamingProvider] = useState<"local" | "cloud" | null>(null);
+  const [streamingProviderLabel, setStreamingProviderLabel] = useState<string | undefined>(undefined);
 
   const messagesRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const isLoading = loadStates.length > 0;
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setMessages(initialMessages);
-  }, [sessionId, initialMessages]);
+    setChallenger(initialChallenger);
+  }, [sessionId, initialMessages, initialChallenger]);
+
+  const refreshStatus = useCallback(async (selectLocalIfUp = true) => {
+    setStatusRefreshing(true);
+    try {
+      const r = await fetch("/api/ollama-status");
+      const data = (await r.json()) as ModelStatus;
+      setModelStatus(data);
+      if (data.available && selectLocalIfUp) setPreferredProvider("local");
+    } catch {
+      setModelStatus((prev) => (prev ? { ...prev, available: false } : prev));
+    } finally {
+      setStatusRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus]);
+
+  // Pré-remplit les livrables déjà transformés en tâches (anti-doublon).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("tasks").select("content").eq("session_id", sessionId);
+      if (cancelled || !data) return;
+      setTaskedItems(new Set(data.map((t: { content: string }) => t.content)));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, supabase]);
 
   useEffect(() => {
     if (messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
-  }, [messages, loadStates]);
+  }, [messages, liveReplies, liveSynthesis, streamingContent, isStreaming]);
+
+  const convertToTask = useCallback(
+    async (text: string, agentId: AgentId) => {
+      if (taskedItems.has(text)) return;
+      setTaskedItems((p) => new Set(p).add(text));
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: sess } = await supabase
+        .from("sessions")
+        .select("project_id")
+        .eq("id", sessionId)
+        .single();
+      await supabase.from("tasks").insert({
+        user_id: user.id,
+        session_id: sessionId,
+        project_id: sess?.project_id ?? null,
+        content: text,
+        status: "todo",
+        source_agent_id: agentId,
+      });
+    },
+    [sessionId, supabase, taskedItems],
+  );
+
+  const toggleChallenger = useCallback(async () => {
+    const next = !challenger;
+    setChallenger(next);
+    await supabase.from("sessions").update({ challenger_mode: next }).eq("id", sessionId);
+  }, [challenger, sessionId, supabase]);
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isStreaming) return;
     const trimmed = input.trim();
     setInput("");
     setError(null);
     if (taRef.current) taRef.current.style.height = "auto";
 
-    // Affiche immédiatement tous les états de chargement
-    const initialLoadStates: AgentLoadState[] = [
-      { agentId: panelAgentIds[0], status: "loading" },
-      ...panelAgentIds.slice(1).map((id) => ({ agentId: id, status: "waiting" as AgentLoadStatus })),
-      { agentId: "__synthesis__", status: "waiting" as AgentLoadStatus },
-    ];
-    setLoadStates(initialLoadStates);
+    const userMsg: ChatMessage = { role: "user", content: trimmed, ts: new Date().toISOString() };
 
-    const previousReplies: Array<{ agentId: AgentId; content: string }> = [];
-    const newMessages: ChatMessage[] = [];
+    setLiveUser(trimmed);
+    setLiveReplies([]);
+    setLiveSynthesis(null);
+    setStreamingAgentId(null);
+    setStreamingContent("");
+    setStreamingProvider(null);
+    setStreamingProviderLabel(undefined);
+    setIsStreaming(true);
+
+    // Sources de vérité locales (immunisées contre les setState asynchrones).
+    const collectedReplies: ChatMessage[] = [];
+    let collectedSynthesis: ChatMessage | null = null;
+    let hadError = false;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
-      // ── Étapes agents ────────────────────────────────────────────────
-      for (let step = 0; step < panelAgentIds.length; step++) {
-        // Passer l'agent courant en "loading", le suivant en "loading" (si existant)
-        setLoadStates((prev) =>
-          prev.map((s, i) => {
-            if (i === step) return { ...s, status: "done" as AgentLoadStatus };
-            if (i === step + 1) return { ...s, status: "loading" as AgentLoadStatus };
-            return s;
-          }),
-        );
-
-        const res = await fetch("/api/panel-chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            agentIds: panelAgentIds,
-            step,
-            previousReplies: [...previousReplies],
-            userMessage: step === 0 ? trimmed : undefined,
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error ?? "Erreur inconnue.");
-          setLoadStates([]);
-          return;
-        }
-
-        const agentMsg = data.message as ChatMessage;
-        newMessages.push(agentMsg);
-        previousReplies.push({ agentId: panelAgentIds[step], content: agentMsg.content });
-
-        // Ajoutez le message dans l'UI au fur et à mesure
-        setMessages((prev) => {
-          const base = step === 0
-            ? [...prev, { role: "user" as const, content: trimmed, ts: new Date().toISOString() }]
-            : prev;
-          return [...base, agentMsg];
-        });
-
-        if (step === 0 && data.title && onTitleChange) {
-          onTitleChange(data.title);
-        }
-      }
-
-      // ── Synthèse ────────────────────────────────────────────────────
-      setLoadStates((prev) =>
-        prev.map((s) =>
-          s.agentId === "__synthesis__" ? { ...s, status: "loading" as AgentLoadStatus } : { ...s, status: "done" as AgentLoadStatus },
-        ),
-      );
-
-      const synthRes = await fetch("/api/panel-chat", {
+      const res = await fetch("/api/panel-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          agentIds: panelAgentIds,
-          isSynthesis: true,
-          userMessage: trimmed,
-          allReplies: previousReplies,
-        }),
+        body: JSON.stringify({ sessionId, userMessage: trimmed, preferredProvider, webSearch, challenger }),
+        signal: controller.signal,
       });
-
-      const synthData = await synthRes.json();
-      if (!synthRes.ok) {
-        setError(synthData.error ?? "Erreur lors de la synthèse.");
-        setLoadStates([]);
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({ error: "Erreur réseau." }));
+        setError(data.error ?? "Erreur inconnue.");
+        hadError = true;
         return;
       }
 
-      setMessages((prev) => [...prev, synthData.message as ChatMessage]);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur réseau.");
-    } finally {
-      setLoadStates([]);
-    }
-  }, [input, isLoading, sessionId, panelAgentIds, onTitleChange]);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-  // Reconstitue les rounds pour l'affichage
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t) continue;
+          let evt: {
+            t: string;
+            c?: string;
+            agentId?: AgentId | "__synthesis__";
+            message?: ChatMessage;
+            artifacts?: ChatMessage["artifacts"];
+            title?: string;
+            provider?: "local" | "cloud";
+            providerLabel?: string;
+            error?: string;
+          };
+          try {
+            evt = JSON.parse(t);
+          } catch {
+            continue;
+          }
+
+          if (evt.t === "title") {
+            if (evt.title && onTitleChange) onTitleChange(evt.title);
+          } else if (evt.t === "agent-start") {
+            setStreamingAgentId(evt.agentId ?? null);
+            setStreamingProvider(evt.provider ?? null);
+            setStreamingProviderLabel(evt.providerLabel);
+            setStreamingContent("");
+          } else if (evt.t === "chunk" && typeof evt.c === "string") {
+            setStreamingContent((s) => s + evt.c);
+          } else if (evt.t === "agent-done" && evt.message) {
+            collectedReplies.push(evt.message);
+            setLiveReplies([...collectedReplies]);
+            setStreamingContent("");
+            setStreamingAgentId(null);
+          } else if (evt.t === "agent-artifacts" && evt.artifacts && evt.agentId) {
+            const idx = collectedReplies.findLastIndex((m) => m.agentId === evt.agentId);
+            if (idx >= 0) {
+              collectedReplies[idx] = { ...collectedReplies[idx], artifacts: evt.artifacts };
+              setLiveReplies([...collectedReplies]);
+            }
+          } else if (evt.t === "synthesis-start") {
+            setStreamingAgentId("__synthesis__");
+            setStreamingProvider(evt.provider ?? null);
+            setStreamingProviderLabel(evt.providerLabel);
+            setStreamingContent("");
+          } else if (evt.t === "synthesis-done" && evt.message) {
+            collectedSynthesis = evt.message;
+            setLiveSynthesis(evt.message);
+            setStreamingContent("");
+            setStreamingAgentId(null);
+          } else if (evt.t === "error") {
+            setError(evt.error ?? "Erreur du panel.");
+            hadError = true;
+          }
+        }
+      }
+    } catch (e: unknown) {
+      // Stop volontaire : pas d'erreur affichée, on garde le déjà-produit.
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setError(e instanceof Error ? e.message : "Erreur réseau.");
+        hadError = true;
+      }
+    } finally {
+      // Bascule le round terminé dans l'historique. On garde ce qu'on a si erreur
+      // (le serveur l'a aussi persisté), sinon on jette un round vide.
+      setMessages((prev) => {
+        if (collectedReplies.length === 0) return prev;
+        return [
+          ...prev,
+          userMsg,
+          ...collectedReplies,
+          ...(collectedSynthesis ? [collectedSynthesis] : []),
+        ];
+      });
+      setIsStreaming(false);
+      setLiveUser(null);
+      setLiveReplies([]);
+      setLiveSynthesis(null);
+      setStreamingAgentId(null);
+      setStreamingContent("");
+      setStreamingProvider(null);
+      setStreamingProviderLabel(undefined);
+      abortRef.current = null;
+      void hadError;
+    }
+  }, [input, isStreaming, sessionId, preferredProvider, webSearch, challenger, onTitleChange]);
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
   const rounds = groupIntoRounds(messages);
 
-  // Trouve les états de chargement en cours pour les afficher dans un "round en cours"
-  const currentLoadingAgents = loadStates.filter((s) => s.status !== "done");
+  // Agents pas encore passés dans le round live (ni terminés, ni en cours).
+  const doneAgentIds = new Set(liveReplies.map((r) => r.agentId));
+  const allAgentsDone = liveReplies.length === panelAgentIds.length;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: C.bg }}>
@@ -671,9 +1074,36 @@ export function MultiAgentSession({
           </span>
         )}
 
-        {onLinkProject && (
-          <ProjectLinkButton project={project} isMobile={isMobile} onClick={onLinkProject} />
-        )}
+        {onLinkProject && <ProjectLinkButton project={project} isMobile={isMobile} onClick={onLinkProject} />}
+
+        <HeaderToggle
+          active={challenger}
+          onClick={toggleChallenger}
+          icon="zap"
+          label="Mode Challenger"
+          colorOn="#D97706"
+          bgOn="#FFFBEB"
+          title="Pousse les agents à challenger vos hypothèses"
+          compact={isMobile}
+        />
+        <HeaderToggle
+          active={webSearch}
+          onClick={() => setWebSearch((v) => !v)}
+          icon="search"
+          label="Recherche web"
+          colorOn="#0284C7"
+          bgOn="#E0F2FE"
+          title="Les agents consultent le web avant de répondre (plus lent)"
+          compact={isMobile}
+        />
+        <ModelSelector
+          status={modelStatus}
+          provider={preferredProvider}
+          onChange={setPreferredProvider}
+          onRefresh={() => refreshStatus()}
+          refreshing={statusRefreshing}
+          compact={isMobile}
+        />
       </div>
 
       {/* Messages */}
@@ -688,7 +1118,7 @@ export function MultiAgentSession({
           gap: 20,
         }}
       >
-        {rounds.length === 0 && !isLoading && (
+        {rounds.length === 0 && !isStreaming && (
           <div
             style={{
               color: C.textMute,
@@ -725,103 +1155,143 @@ export function MultiAgentSession({
               <span style={{ fontSize: 20, color: C.textMute }}>→</span>
               <Icon name="sparkles" size={28} color={SYNTHESIS_META.color} />
             </div>
-            Posez votre question au panel. Les agents répondront chacun depuis leur angle, se challengeront mutuellement, puis une synthèse consolidera leurs avis.
+            Posez votre question au panel. Les agents répondront chacun depuis leur angle, se
+            challengeront mutuellement, puis une synthèse consolidera leurs avis.
           </div>
         )}
 
         {rounds.map((round, i) => (
-          <PanelRoundDisplay key={i} round={round} panelAgentIds={panelAgentIds} />
+          <PanelRoundDisplay
+            key={i}
+            round={round}
+            panelAgentIds={panelAgentIds}
+            onConvertToTask={convertToTask}
+            taskedItems={taskedItems}
+          />
         ))}
 
-        {/* Round en cours (loading) */}
-        {isLoading && (
+        {/* Round en cours (streaming) */}
+        {isStreaming && liveUser && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {/* Pas de bulle user ici — elle est déjà ajoutée dans messages */}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <div
+                style={{
+                  maxWidth: "72%",
+                  background: C.navy,
+                  color: "white",
+                  borderRadius: "12px 4px 12px 12px",
+                  padding: "10px 15px",
+                  fontSize: 13.5,
+                  lineHeight: 1.6,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {liveUser}
+              </div>
+            </div>
+
             <div
               style={{
                 background: C.bg,
                 border: `1px solid ${C.border}`,
                 borderRadius: 12,
-                overflow: "hidden",
+                padding: "12px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 14,
               }}
             >
-              {currentLoadingAgents
-                .filter((s) => s.agentId !== "__synthesis__")
-                .map((s) => {
-                  const agentId = s.agentId as AgentId;
-                  const agent = AGENTS[agentId];
-                  return (
-                    <div
-                      key={agentId}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        padding: "10px 14px",
-                        borderBottom: `1px solid ${C.border}`,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: 6,
-                          background: agent.bg,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: 10,
-                          fontWeight: 800,
-                          color: agent.color,
-                          fontFamily: "inherit",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {agent.firstName[0]}
-                      </div>
-                      {s.status === "loading" ? (
-                        <TypingDots color={agent.color} label={agent.firstName} />
-                      ) : (
-                        <WaitingIndicator label={agent.firstName} />
-                      )}
-                    </div>
-                  );
-                })}
+              {/* Réponses déjà terminées */}
+              {liveReplies.map((reply, i) => {
+                const speakerId = reply.agentId as AgentId;
+                const others = panelAgents.filter((a) => a.id !== speakerId);
+                return (
+                  <AgentReplyBubble
+                    key={`done-${i}`}
+                    msg={reply}
+                    agentId={speakerId}
+                    otherAgents={others}
+                    onConvertToTask={convertToTask}
+                    taskedItems={taskedItems}
+                  />
+                );
+              })}
 
-              {/* Synthesizer */}
-              {currentLoadingAgents.some((s) => s.agentId === "__synthesis__") && (
+              {/* Agent en cours de génération */}
+              {streamingAgentId && streamingAgentId !== "__synthesis__" && (
+                streamingContent ? (
+                  <AgentReplyBubble
+                    msg={{
+                      role: "assistant",
+                      agentId: streamingAgentId,
+                      content: stripTrailingSections(streamingContent),
+                      ts: new Date().toISOString(),
+                      provider: streamingProvider ?? undefined,
+                      providerLabel: streamingProviderLabel,
+                    }}
+                    agentId={streamingAgentId}
+                    otherAgents={panelAgents.filter((a) => a.id !== streamingAgentId)}
+                    streaming
+                  />
+                ) : (
+                  <TypingDots color={AGENTS[streamingAgentId].color} label={AGENTS[streamingAgentId].firstName} />
+                )
+              )}
+
+              {/* Agents pas encore passés */}
+              {panelAgentIds
+                .filter((id) => !doneAgentIds.has(id) && id !== streamingAgentId)
+                .map((id) => (
+                  <WaitingIndicator key={`wait-${id}`} label={AGENTS[id].firstName} />
+                ))}
+            </div>
+
+            {/* Synthèse en cours / à venir */}
+            {liveSynthesis ? (
+              <SynthesisBubble
+                msg={liveSynthesis}
+                panelAgents={panelAgents}
+                onConvertToTask={(text) => convertToTask(text, panelAgentIds[0])}
+                taskedItems={taskedItems}
+              />
+            ) : streamingAgentId === "__synthesis__" ? (
+              streamingContent ? (
+                <SynthesisBubble
+                  msg={{
+                    role: "assistant",
+                    agentId: "__synthesis__",
+                    content: stripTrailingSections(streamingContent),
+                    ts: new Date().toISOString(),
+                    provider: streamingProvider ?? undefined,
+                    providerLabel: streamingProviderLabel,
+                  }}
+                  panelAgents={panelAgents}
+                  streaming
+                />
+              ) : (
                 <div
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "10px 14px",
                     background: `${SYNTHESIS_META.color}08`,
+                    border: `1px solid ${SYNTHESIS_META.color}25`,
+                    borderRadius: 12,
                   }}
                 >
-                  <div
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 6,
-                      background: SYNTHESIS_META.bg,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 12,
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Icon name="sparkles" size={12} color={SYNTHESIS_META.color} />
-                  </div>
-                  {loadStates.find((s) => s.agentId === "__synthesis__")?.status === "loading" ? (
-                    <TypingDots color={SYNTHESIS_META.color} label={SYNTHESIS_META.name} />
-                  ) : (
-                    <WaitingIndicator label={SYNTHESIS_META.name} />
-                  )}
+                  <TypingDots color={SYNTHESIS_META.color} label={SYNTHESIS_META.name} />
                 </div>
-              )}
-            </div>
+              )
+            ) : (
+              allAgentsDone && (
+                <div
+                  style={{
+                    background: `${SYNTHESIS_META.color}08`,
+                    border: `1px solid ${SYNTHESIS_META.color}25`,
+                    borderRadius: 12,
+                  }}
+                >
+                  <WaitingIndicator label={SYNTHESIS_META.name} />
+                </div>
+              )
+            )}
           </div>
         )}
 
@@ -831,6 +1301,26 @@ export function MultiAgentSession({
       {error && (
         <div style={{ padding: "8px 20px", background: "#FEF2F2", color: "#991B1B", fontSize: 12.5, borderTop: `1px solid #FECACA` }}>
           {error}
+        </div>
+      )}
+
+      {webSearch && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 20px",
+            background: "#F0F9FF",
+            color: "#0369A1",
+            fontSize: 11.5,
+            fontWeight: 600,
+            borderTop: `1px solid #E0F2FE`,
+          }}
+        >
+          <Icon name="search" size={12} color="#0EA5E9" />
+          Recherche web activée : une recherche partagée enrichit tous les agents, les réponses sont
+          plus lentes.
         </div>
       )}
 
@@ -873,7 +1363,7 @@ export function MultiAgentSession({
             }}
             placeholder={`Posez votre question au panel (${panelAgentIds.length} agents + synthèse)…`}
             rows={1}
-            disabled={isLoading}
+            disabled={isStreaming}
             style={{
               flex: 1,
               background: "transparent",
@@ -888,28 +1378,49 @@ export function MultiAgentSession({
               overflowY: "auto",
             }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 9,
-              border: "none",
-              flexShrink: 0,
-              background: input.trim() && !isLoading ? SYNTHESIS_META.color : C.border,
-              cursor: input.trim() && !isLoading ? "pointer" : "default",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transition: "background 0.15s",
-            }}
-          >
-            <Icon name="send" size={14} color="white" />
-          </button>
+          {isStreaming ? (
+            <button
+              onClick={handleStop}
+              title="Arrêter le panel"
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 9,
+                border: "none",
+                flexShrink: 0,
+                background: "#991B1B",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <span style={{ width: 11, height: 11, borderRadius: 2, background: "white" }} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 9,
+                border: "none",
+                flexShrink: 0,
+                background: input.trim() ? SYNTHESIS_META.color : C.border,
+                cursor: input.trim() ? "pointer" : "default",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 0.15s",
+              }}
+            >
+              <Icon name="send" size={14} color="white" />
+            </button>
+          )}
         </div>
         <div style={{ marginTop: 5, fontSize: 11, color: C.textMute, textAlign: "center" }}>
-          Entrée pour envoyer · Les agents répondent séquentiellement · Chacun voit les réponses précédentes
+          Entrée pour envoyer · Les agents répondent en direct, chacun voit les précédents
         </div>
       </div>
     </div>

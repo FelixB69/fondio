@@ -7,18 +7,10 @@ import {
   type ProjectType,
 } from "@/lib/data";
 import { generateArtifacts } from "@/lib/artifacts";
-import {
-  callChatModel,
-  callChatModelStream,
-  callModelWithTools,
-  describeLLMError,
-  type LLMMessage,
-  type ToolDef,
-  type ToolLoopMessage,
-} from "@/lib/llm";
+import { callChatModelStream, describeLLMError, type LLMMessage } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
-import { searchWeb, formatWebResultsForPrompt } from "@/lib/web-search";
+import { gatherWebContext } from "@/lib/web-search";
 
 export const runtime = "nodejs";
 
@@ -28,12 +20,16 @@ interface ChatRequest {
   preferredProvider?: "local" | "cloud";
   // Recherche web activée par l'utilisateur (bouton dans le chat). Off par défaut.
   webSearch?: boolean;
+  // Régénération : on rejoue le DERNIER tour utilisateur (sans réajouter son
+  // message) après avoir retiré la réponse précédente de l'assistant.
+  regenerate?: boolean;
 }
 
 export async function POST(req: Request) {
-  const { sessionId, userMessage, preferredProvider, webSearch } = (await req.json()) as ChatRequest;
+  const { sessionId, userMessage, preferredProvider, webSearch, regenerate } =
+    (await req.json()) as ChatRequest;
 
-  if (!sessionId || !userMessage?.trim()) {
+  if (!sessionId || (!regenerate && !userMessage?.trim())) {
     return NextResponse.json({ error: "sessionId et userMessage requis." }, { status: 400 });
   }
 
@@ -56,11 +52,27 @@ export async function POST(req: Request) {
   const agent = AGENTS[session.agent_id as AgentId];
   if (!agent) return NextResponse.json({ error: "Agent inconnu." }, { status: 400 });
 
-  const history: ChatMessage[] = Array.isArray(session.messages) ? session.messages : [];
+  let history: ChatMessage[] = Array.isArray(session.messages) ? session.messages : [];
   const now = new Date().toISOString();
 
-  const userMsg: ChatMessage = { role: "user", content: userMessage.trim(), ts: now };
-  const updatedHistory = [...history, userMsg];
+  // Régénération : on retire la (les) dernière(s) réponse(s) assistant et on
+  // rejoue le dernier message utilisateur sans le réécrire. Sinon, tour normal :
+  // on ajoute le message utilisateur à l'historique.
+  let updatedHistory: ChatMessage[];
+  if (regenerate) {
+    while (history.length && history[history.length - 1].role === "assistant") {
+      history = history.slice(0, -1);
+    }
+    if (!history.length || history[history.length - 1].role !== "user") {
+      return NextResponse.json({ error: "Aucun message à régénérer." }, { status: 400 });
+    }
+    updatedHistory = history;
+  } else {
+    const userMsg: ChatMessage = { role: "user", content: userMessage.trim(), ts: now };
+    updatedHistory = [...history, userMsg];
+  }
+  const lastUserContent =
+    [...updatedHistory].reverse().find((m) => m.role === "user")?.content ?? "";
 
   // Récupère les sessions précédentes du même agent pour injecter le contexte.
   const { data: prevSessions } = await supabase
@@ -100,36 +112,12 @@ export async function POST(req: Request) {
   let webSources: { title: string; url: string }[] = [];
   // Recherche web seulement si l'utilisateur a activé le bouton (sinon la réponse
   // s'affiche tout de suite, sans étape de recherche préalable → bien plus rapide).
+  // La logique (tool-calling puis fallback) vit dans lib/web-search.ts, partagée
+  // avec le panel.
   if (webSearch) {
-    // Étape 1 : tool-calling natif. Le modèle appelle lui-même web_search.
-    try {
-      const research = await runWebResearch(updatedHistory, preferredProvider);
-      webContext = research.webContext;
-      webSources = research.sources;
-    } catch (e) {
-      // Le tool-calling n'a pas pu tourner (modèle sans support des outils,
-      // Ollama injoignable...). On laisse l'étape 2 prendre le relais.
-      console.error("Tool-calling indisponible :", e);
-    }
-
-    // Étape 2 : fallback. On le déclenche dès que l'étape 1 n'a ramené AUCUNE
-    // source — que le tool-calling ait planté OU que le modèle ait répondu
-    // « FINI » sans chercher. L'utilisateur a EXPLICITEMENT activé le bouton
-    // web : on lui doit une vraie tentative. decideSearchQuery reste le garde-fou
-    // (il renvoie null pour un small talk / une question d'opinion), donc on ne
-    // cherche pas pour rien. On ne paie cette étape que si l'étape 1 a échoué.
-    if (webSources.length === 0) {
-      try {
-        const query = await decideSearchQuery(updatedHistory, preferredProvider);
-        if (query) {
-          const search = await searchWeb(query);
-          webContext = formatWebResultsForPrompt(search);
-          webSources = search.results.map((r) => ({ title: r.title, url: r.url }));
-        }
-      } catch (e2) {
-        console.error("Recherche web ignorée :", e2);
-      }
-    }
+    const research = await gatherWebContext(updatedHistory, preferredProvider);
+    webContext = research.webContext;
+    webSources = research.sources;
   }
 
   const fullName =
@@ -159,7 +147,7 @@ export async function POST(req: Request) {
   ];
 
   const newTitle =
-    session.title ?? userMsg.content.slice(0, 60) + (userMsg.content.length > 60 ? "…" : "");
+    session.title ?? lastUserContent.slice(0, 60) + (lastUserContent.length > 60 ? "…" : "");
 
   let streamResult: Awaited<ReturnType<typeof callChatModelStream>>;
   try {
@@ -259,147 +247,4 @@ export async function POST(req: Request) {
       "X-Accel-Buffering": "no",
     },
   });
-}
-
-// Définition de l'outil exposé au modèle : une fonction "web_search" qui prend
-// une requête. Le modèle lit cette description pour décider quand l'appeler.
-const WEB_SEARCH_TOOL: ToolDef = {
-  type: "function",
-  function: {
-    name: "web_search",
-    description:
-      "Recherche des informations récentes et factuelles sur le web (chiffres, prix, concurrents, taille de marché, tendances, actualités). À utiliser dès qu'une donnée vérifiable et à jour manque pour répondre.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "La requête de recherche, formulée comme une recherche Google.",
-        },
-      },
-      required: ["query"],
-    },
-  },
-};
-
-// Boucle d'agent en TOOL-CALLING NATIF. On donne l'outil web_search au modèle ;
-// il décide lui-même s'il l'appelle (et peut l'appeler plusieurs fois pour
-// creuser). On exécute chaque recherche, on lui renvoie le résultat, et on
-// recommence jusqu'à ce qu'il n'ait plus besoin de chercher (max 3 tours).
-async function runWebResearch(
-  conversation: ChatMessage[],
-  preferredProvider?: "local" | "cloud",
-): Promise<{ webContext: string; sources: { title: string; url: string }[] }> {
-  const recent = conversation.slice(-6);
-  // Le fil de la "sous-conversation" de recherche, en format normalisé
-  // (callModelWithTools le traduit ensuite pour Ollama ou Mistral).
-  const messages: ToolLoopMessage[] = [
-    {
-      role: "system",
-      content:
-        'Tu es un assistant de recherche. À partir de la conversation, utilise l\'outil web_search autant de fois que nécessaire pour rassembler les infos factuelles utiles (tu peux chercher plusieurs fois pour creuser un sujet). Quand tu as assez d\'infos — ou si aucune recherche n\'est utile (remerciement, small talk, coaching, reformulation) — réponds juste "FINI" sans appeler d\'outil. IMPORTANT : Vouvoie SYSTÉMATIQUEMENT l\'utilisateur dans ta réponse (vous, votre, vos — jamais tu, ton, tes).',
-    },
-    ...recent.map((m): ToolLoopMessage => ({ role: m.role, content: m.content })),
-  ];
-
-  const collected: { title: string; url: string; content: string; score: number }[] = [];
-  // 1 seul tour de recherche = rapide. Passe à 2-3 si tu veux que l'agent creuse
-  // en plusieurs recherches successives, au prix de la vitesse (chaque tour = une
-  // génération du modèle en plus).
-  const MAX_STEPS = 1;
-
-  for (let step = 0; step < MAX_STEPS; step++) {
-    // On respecte le choix de l'utilisateur : "local" force le local (pas de
-    // bascule cloud cachée), "cloud" force le cloud, et sans choix on laisse
-    // callModelWithTools faire son réflexe habituel (Ollama puis cloud en secours).
-    const { data: turn, providerLabel } = await callModelWithTools(messages, [WEB_SEARCH_TOOL], {
-      forceProvider: preferredProvider,
-    });
-    if (step === 0 && process.env.NODE_ENV !== "production")
-      console.log(`[recherche] tool-calling via ${providerLabel}`);
-    if (turn.toolCalls.length === 0) break; // le modèle estime avoir fini
-
-    // On rejoue le message de l'assistant (avec ses demandes d'outils) : l'API a
-    // besoin de ce lien entre la demande et la réponse d'outil.
-    messages.push({ role: "assistant", content: turn.content, toolCalls: turn.toolCalls });
-
-    for (const call of turn.toolCalls) {
-      let query = "";
-      try {
-        query = (JSON.parse(call.arguments) as { query?: string }).query ?? "";
-      } catch {
-        /* arguments mal formés : on ignore cette demande */
-      }
-      let toolOutput = "Aucun résultat.";
-      if (query) {
-        // Visible dans le terminal `npm run dev` : tu vois l'agent chercher, et
-        // parfois enchaîner plusieurs recherches au sein d'une même réponse.
-        if (process.env.NODE_ENV !== "production")
-          console.log(`[web_search] étape ${step + 1} → "${query}"`);
-        const search = await searchWeb(query);
-        for (const r of search.results) {
-          collected.push({ title: r.title, url: r.url, content: r.content, score: r.score });
-        }
-        toolOutput =
-          search.results.map((r) => `${r.title} — ${r.url}\n${r.content}`).join("\n\n") ||
-          "Aucun résultat.";
-      }
-      // On renvoie le résultat de la recherche au modèle (message de rôle "tool").
-      messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: toolOutput });
-    }
-  }
-
-  // Dédoublonne les pages par URL (le modèle peut retomber sur les mêmes).
-  const seen = new Set<string>();
-  const unique = collected.filter((c) => (seen.has(c.url) ? false : (seen.add(c.url), true)));
-
-  // On réutilise exactement le même formatage que la recherche simple, pour que
-  // les citations [1], [2]... du modèle correspondent à l'ordre de `sources`.
-  const webContext = unique.length
-    ? formatWebResultsForPrompt({ query: "", answer: null, results: unique })
-    : "";
-  const sources = unique.map((u) => ({ title: u.title, url: u.url }));
-  return { webContext, sources };
-}
-
-// "Cerveau" du bouton recherche : à partir de la conversation, le modèle décide
-// s'il faut chercher sur le web et, si oui, formule la requête idéale (souvent
-// différente de la phrase tapée par l'utilisateur).
-// Renvoie la requête à chercher, ou `null` si une recherche est inutile.
-async function decideSearchQuery(
-  conversation: ChatMessage[],
-  forceProvider?: "local" | "cloud",
-): Promise<string | null> {
-  // On ne donne que les derniers tours : le modèle a juste besoin du sujet du moment.
-  const recent = conversation.slice(-6);
-  const transcript = recent
-    .map((m) => `${m.role === "user" ? "Utilisateur" : "Assistant"} : ${m.content}`)
-    .join("\n");
-
-  const system = `Tu décides s'il faut faire une recherche web pour bien répondre au dernier message.
-Une recherche est UTILE pour : chiffres, prix, concurrents, taille de marché, tendances, actualités, faits vérifiables et récents.
-Une recherche est INUTILE pour : remerciements, "bonjour", small talk, questions d'opinion ou de coaching, reformulations, ou quand l'historique de la conversation suffit déjà.
-
-Réponds UNIQUEMENT en JSON, sans aucun autre texte :
-{ "needSearch": true ou false, "query": "la requête web idéale, courte, formulée comme une recherche Google" }
-Si needSearch vaut false, mets "query": "".`;
-
-  try {
-    const { data: raw } = await callChatModel(
-      [
-        { role: "system", content: system },
-        { role: "user", content: `Conversation :\n${transcript}\n\nDécide maintenant.` },
-      ],
-      { jsonMode: true, forceProvider },
-    );
-    const parsed = JSON.parse(raw) as { needSearch?: boolean; query?: string };
-    if (parsed.needSearch && typeof parsed.query === "string" && parsed.query.trim()) {
-      return parsed.query.trim();
-    }
-    return null;
-  } catch {
-    // En cas de pépin (JSON cassé, modèle indispo...), on n'enrichit pas : le
-    // chat répond normalement, sans web. Une feature de confort ne casse rien.
-    return null;
-  }
 }

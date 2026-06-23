@@ -64,6 +64,7 @@ export default function ChatPage() {
         projectId={liveProjectId}
         project={project}
         initialMessages={session.messages}
+        initialChallenger={session.challenger_mode}
         onBack={() => router.push("/home")}
         onTitleChange={(title) => handleTitleChange(session.id, title)}
         onLinkProject={() => setLinkingSessionId(session.id)}

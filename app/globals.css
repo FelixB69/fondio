@@ -96,6 +96,23 @@ textarea {
     transform: rotate(360deg);
   }
 }
+/* Curseur clignotant affiché en fin de texte pendant le streaming. */
+@keyframes fndBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.fnd-caret {
+  display: inline-block;
+  margin-left: 1px;
+  color: currentColor;
+  opacity: 0.6;
+  animation: fndBlink 1s step-start infinite;
+}
 
 /* Rendu des artefacts markdown produits par Qwen2.5-Coder */
 .fnd-md h1,

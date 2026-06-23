@@ -454,6 +454,7 @@ export function buildPanelAgentPrompt(
   allAgentIds: AgentId[],
   previousReplies: Array<{ agentId: AgentId; content: string }>,
   projectType: ProjectType,
+  challenger: boolean,
   greetingFirstName?: string,
 ): string {
   const agent = AGENTS[agentId];
@@ -465,16 +466,17 @@ export function buildPanelAgentPrompt(
   const panelCtx = `Tu participes à un panel d'experts conseillant la même personne. Les autres experts du panel s'appellent : ${others}.`;
   const projectCtx = PROJECT_TYPE_INSTRUCTIONS[projectType];
   const greeting = greetingFirstName ? `\n\n${buildGreetingInstruction(greetingFirstName)}` : "";
+  const challengerCtx = challenger ? `\n\n${CHALLENGER_INSTRUCTIONS}` : "";
 
   if (previousReplies.length === 0) {
-    return `${agent.systemPrompt}\n\n${projectCtx}\n\n${panelCtx}\nTu es le premier à répondre — donne TON angle d'expert en quelques phrases percutantes.\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\n${FORMAT_INSTRUCTIONS}${greeting}`;
+    return `${agent.systemPrompt}\n\n${projectCtx}\n\n${panelCtx}\nTu es le premier à répondre — donne TON angle d'expert en quelques phrases percutantes.\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\n${FORMAT_INSTRUCTIONS}${challengerCtx}${greeting}`;
   }
 
   const previousCtx = previousReplies
     .map((r) => `--- ${AGENTS[r.agentId].name} ---\n${r.content.slice(0, 400)}`)
     .join("\n\n");
 
-  return `${agent.systemPrompt}\n\n${projectCtx}\n\n${panelCtx}\n\n${PANEL_DEBATE_INSTRUCTIONS}\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\nRéponses des autres experts :\n\n${previousCtx}\n\n${FORMAT_INSTRUCTIONS}${greeting}`;
+  return `${agent.systemPrompt}\n\n${projectCtx}\n\n${panelCtx}\n\n${PANEL_DEBATE_INSTRUCTIONS}\n\n${PANEL_BREVITY_INSTRUCTIONS}\n\nRéponses des autres experts :\n\n${previousCtx}\n\n${FORMAT_INSTRUCTIONS}${challengerCtx}${greeting}`;
 }
 
 export function buildSynthesisSystemPrompt(): string {

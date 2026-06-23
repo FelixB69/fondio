@@ -5,308 +5,21 @@ import { marked } from "marked";
 import {
   AGENTS,
   AgentId,
-  Artifact,
   ChatMessage,
   PROJECT_TYPES,
   ProjectType,
   SessionRow,
 } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import { prettyModelName, type ModelStatus } from "@/lib/models";
 import { stripTrailingSections } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import type { ProjectLite } from "./AppDataProvider";
+import { ArtifactBlock } from "./Artifact";
 import { Icon, IconName } from "./Icon";
+import { ModelSelector } from "./ModelSelector";
 import { ProjectLinkButton } from "./ProjectLinkButton";
-
-const TABLE_DOWNLOAD_FORMATS = [
-  { format: "csv", label: "CSV" },
-  { format: "xlsx", label: "Excel (.xlsx)" },
-  { format: "json", label: "JSON" },
-] as const;
-
-const DOC_DOWNLOAD_FORMATS = [
-  { format: "md", label: "Markdown (.md)" },
-  { format: "pdf", label: "PDF" },
-  { format: "docx", label: "Word (.docx)" },
-  { format: "txt", label: "Texte (.txt)" },
-] as const;
-
-async function downloadArtifact(artifact: Artifact, format: string): Promise<void> {
-  const res = await fetch("/api/artifacts/download", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ artifact, format }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: "Téléchargement impossible." }));
-    throw new Error(data.error ?? "Téléchargement impossible.");
-  }
-  const blob = await res.blob();
-  const disposition = res.headers.get("Content-Disposition") ?? "";
-  const match = disposition.match(/filename="([^"]+)"/);
-  const filename = match?.[1] ?? `livrable.${format}`;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function ArtifactBlock({
-  artifact,
-  color,
-  bg,
-  onConvertToTask,
-  tasked,
-}: {
-  artifact: Artifact;
-  color: string;
-  bg: string;
-  onConvertToTask: (text: string) => void;
-  tasked: boolean;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [downloading, setDownloading] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const formats = artifact.kind === "table" ? TABLE_DOWNLOAD_FORMATS : DOC_DOWNLOAD_FORMATS;
-
-  const handleDownload = async (format: string) => {
-    setDownloading(format);
-    setError(null);
-    try {
-      await downloadArtifact(artifact, format);
-      setMenuOpen(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Téléchargement impossible.");
-    } finally {
-      setDownloading(null);
-    }
-  };
-
-  return (
-    <div
-      style={{
-        marginTop: 12,
-        background: bg,
-        border: `1px solid ${color}28`,
-        borderRadius: 8,
-        padding: "10px 12px",
-        // Fondu d'ouverture : le livrable détaillé s'installe en douceur quand la
-        // 2e passe arrive, au lieu de surgir d'un coup.
-        animation: "fndFadeIn 0.3s ease both",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <Icon name={artifact.kind === "table" ? "chart" : "tasks"} size={11} color={color} />
-        <div
-          style={{
-            flex: 1,
-            fontSize: 11.5,
-            fontWeight: 800,
-            color,
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-          }}
-        >
-          {artifact.title}
-        </div>
-        <button
-          onClick={() => !tasked && onConvertToTask(artifact.title)}
-          disabled={tasked}
-          title={tasked ? "Déjà ajouté aux tâches" : "Convertir en tâche"}
-          style={{
-            background: tasked ? "transparent" : C.white,
-            color: tasked ? "#0E9F88" : color,
-            border: tasked ? "none" : `1px solid ${color}40`,
-            borderRadius: 5,
-            padding: tasked ? "2px 0" : "3px 8px",
-            fontSize: 10.5,
-            fontWeight: 700,
-            cursor: tasked ? "default" : "pointer",
-            fontFamily: "inherit",
-            display: "flex",
-            alignItems: "center",
-            gap: 3,
-          }}
-        >
-          {tasked ? (
-            <>
-              <Icon name="check" size={9} color="#0E9F88" /> Tâche
-            </>
-          ) : (
-            <>
-              <Icon name="plus" size={9} color={color} /> Tâche
-            </>
-          )}
-        </button>
-        <div style={{ position: "relative" }}>
-          <button
-            onClick={() => setMenuOpen((v) => !v)}
-            style={{
-              background: C.white,
-              color,
-              border: `1px solid ${color}40`,
-              borderRadius: 5,
-              padding: "3px 8px",
-              fontSize: 10.5,
-              fontWeight: 700,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              display: "flex",
-              alignItems: "center",
-              gap: 3,
-            }}
-          >
-            <Icon name="download" size={9} color={color} />
-            Télécharger
-          </button>
-          {menuOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: "calc(100% + 4px)",
-                right: 0,
-                background: C.white,
-                border: `1px solid ${C.border}`,
-                borderRadius: 8,
-                boxShadow: "0 6px 20px rgba(0,0,0,0.08)",
-                padding: 4,
-                zIndex: 10,
-                minWidth: 160,
-              }}
-            >
-              {formats.map((f) => (
-                <button
-                  key={f.format}
-                  onClick={() => handleDownload(f.format)}
-                  disabled={downloading !== null}
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    textAlign: "left",
-                    background: "transparent",
-                    border: "none",
-                    padding: "7px 10px",
-                    fontSize: 12.5,
-                    color: C.text,
-                    cursor: downloading !== null ? "wait" : "pointer",
-                    fontFamily: "inherit",
-                    borderRadius: 5,
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = bg)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  {downloading === f.format ? "…" : f.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {artifact.kind === "table" ? (
-        <ArtifactTable headers={artifact.headers} rows={artifact.rows} color={color} />
-      ) : (
-        <ArtifactMarkdown markdown={artifact.markdown} />
-      )}
-
-      {error && (
-        <div style={{ marginTop: 8, fontSize: 11.5, color: "#991B1B" }}>{error}</div>
-      )}
-    </div>
-  );
-}
-
-function ArtifactTable({
-  headers,
-  rows,
-  color,
-}: {
-  headers: string[];
-  rows: string[][];
-  color: string;
-}) {
-  return (
-    <div style={{ overflowX: "auto", background: C.white, borderRadius: 6 }}>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: 12.5,
-          color: C.text,
-        }}
-      >
-        <thead>
-          <tr style={{ background: `${color}12` }}>
-            {headers.map((h, i) => (
-              <th
-                key={i}
-                style={{
-                  padding: "7px 10px",
-                  textAlign: "left",
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  color,
-                  borderBottom: `1px solid ${color}28`,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-              {r.map((c, j) => (
-                <td
-                  key={j}
-                  style={{
-                    padding: "6px 10px",
-                    verticalAlign: "top",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {c}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ArtifactMarkdown({ markdown }: { markdown: string }) {
-  const html = marked.parse(markdown, { async: false }) as string;
-  return (
-    <div
-      className="fnd-md"
-      style={{
-        background: C.white,
-        borderRadius: 6,
-        padding: "10px 14px",
-        fontSize: 13,
-        color: C.text,
-        lineHeight: 1.6,
-      }}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
-}
 
 interface ChatSessionProps {
   sessionId: string;
@@ -703,6 +416,54 @@ function ArtifactsEnriching({ color }: { color: string }) {
   );
 }
 
+// Actions sous une réponse d'agent : copier le texte, et régénérer (dernier tour).
+function MessageActions({
+  content,
+  onRegenerate,
+}: {
+  content: string;
+  onRegenerate?: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard refusé : on ignore silencieusement */
+    }
+  };
+  const btn: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    background: "transparent",
+    border: "none",
+    color: C.textMute,
+    fontSize: 11,
+    fontWeight: 600,
+    fontFamily: "inherit",
+    cursor: "pointer",
+    padding: "2px 4px",
+    borderRadius: 5,
+  };
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 6, marginLeft: 2 }}>
+      <button onClick={copy} title="Copier la réponse" style={btn}>
+        <Icon name={copied ? "check" : "copy"} size={11} color={copied ? "#0E9F88" : C.textMute} />
+        {copied ? "Copié" : "Copier"}
+      </button>
+      {onRegenerate && (
+        <button onClick={onRegenerate} title="Régénérer la réponse" style={btn}>
+          <Icon name="refresh" size={11} color={C.textMute} />
+          Régénérer
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Mémoïsé : pendant le streaming, seul le dernier message (en cours) change.
 // Sans memo, chaque token re-rendait TOUT l'historique des bulles.
 const MessageBubble = memo(function MessageBubble({
@@ -711,12 +472,16 @@ const MessageBubble = memo(function MessageBubble({
   onConvertToTask,
   taskedItems,
   artifactsLoading,
+  onRegenerate,
+  showActions,
 }: {
   msg: ChatMessage;
   agentId: AgentId;
   onConvertToTask: (text: string) => void;
   taskedItems: Set<string>;
   artifactsLoading?: boolean;
+  onRegenerate?: () => void;
+  showActions?: boolean;
 }) {
   if (msg.role === "user") {
     return (
@@ -808,6 +573,7 @@ const MessageBubble = memo(function MessageBubble({
           />
           <SourcesBlock sources={msg.sources} />
         </div>
+        {showActions && <MessageActions content={msg.content} onRegenerate={onRegenerate} />}
       </div>
     </div>
   );
@@ -843,14 +609,17 @@ export function ChatSession({
   const [webSearch, setWebSearch] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taskedItems, setTaskedItems] = useState<Set<string>>(new Set());
-  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
   const [preferredProvider, setPreferredProvider] = useState<"local" | "cloud">("cloud");
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [statusRefreshing, setStatusRefreshing] = useState(false);
 
   const messagesRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const inputHistoryRef = useRef<string[]>([]);
   const historyIndexRef = useRef<number>(-1);
   const savedDraftRef = useRef<string>("");
+  // Permet de couper une génération en cours (bouton Stop) en abandonnant le fetch.
+  const abortRef = useRef<AbortController | null>(null);
   // Scroll « collant » : on ne re-scrolle automatiquement que si l'utilisateur
   // est DÉJÀ près du bas. S'il a remonté pour relire, on ne lui arrache plus la
   // vue à chaque token / changement de hauteur.
@@ -867,15 +636,26 @@ export function ChatSession({
     setChallenger(initialChallenger);
   }, [sessionId, initialMessages, initialChallenger]);
 
-  useEffect(() => {
-    fetch("/api/ollama-status")
-      .then((r) => r.json())
-      .then((data: { available: boolean }) => {
-        setOllamaAvailable(data.available);
-        if (data.available) setPreferredProvider("local");
-      })
-      .catch(() => setOllamaAvailable(false));
+  // Interroge Ollama + récupère la config réelle des modèles. Local d'abord :
+  // si Ollama répond, on bascule sur local (objectif confidentialité). Réutilisé
+  // par le ModelSelector pour son bouton « re-vérifier ».
+  const refreshStatus = useCallback(async (selectLocalIfUp = true) => {
+    setStatusRefreshing(true);
+    try {
+      const r = await fetch("/api/ollama-status");
+      const data = (await r.json()) as ModelStatus;
+      setModelStatus(data);
+      if (data.available && selectLocalIfUp) setPreferredProvider("local");
+    } catch {
+      setModelStatus((prev) => (prev ? { ...prev, available: false } : prev));
+    } finally {
+      setStatusRefreshing(false);
+    }
   }, []);
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus]);
 
   // Pré-remplit le badge "déjà tâche" avec les livrables qui sont déjà des tasks
   // pour cette session — comme ça on ne peut pas créer de doublons.
@@ -931,50 +711,12 @@ export function ChatSession({
     await supabase.from("sessions").update({ challenger_mode: next }).eq("id", sessionId);
   }, [challenger, sessionId, supabase, projectId]);
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || loading) return;
-    const trimmed = input.trim();
-    setInput("");
-    setError(null);
-    if (taRef.current) taRef.current.style.height = "auto";
-    inputHistoryRef.current = [trimmed, ...inputHistoryRef.current.filter((m) => m !== trimmed)].slice(0, 50);
-    historyIndexRef.current = -1;
-    savedDraftRef.current = "";
-
-    const userMsg: ChatMessage = {
-      role: "user",
-      content: trimmed,
-      ts: new Date().toISOString(),
-    };
-    setMessages((p) => [...p, userMsg]);
-    setLoading(true);
-    setStreamingContent("");
-    // L'utilisateur vient d'envoyer : on le ramène en bas pour suivre la réponse.
-    atBottomRef.current = true;
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, userMessage: trimmed, preferredProvider, webSearch }),
-      });
-      if (!res.ok || !res.body) {
-        const data = await res.json().catch(() => ({ error: "Erreur réseau." }));
-        const errMsg: string = data.error ?? "Erreur inconnue.";
-        if (errMsg.startsWith("OLLAMA_UNAVAILABLE:")) {
-          setOllamaAvailable(false);
-          setPreferredProvider("cloud");
-          setInput(trimmed);
-          if (taRef.current) taRef.current.style.height = "auto";
-          setError("Ollama indisponible, bascule sur Cloud. Réessaie avec Entrée.");
-        } else {
-          setError(errMsg);
-        }
-        setMessages((p) => p.slice(0, -1));
-        return;
-      }
-
-      const reader = res.body.getReader();
+  // Lit le flux NDJSON de /api/chat et met à jour l'UI. Partagé par l'envoi et la
+  // régénération. `onRollback` est appelé sur une erreur serveur (le seul qui
+  // sait s'il faut retirer le message utilisateur optimiste ou non).
+  const consumeStream = useCallback(
+    async (res: Response, onRollback: () => void) => {
+      const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       let rolledBack = false;
@@ -1030,7 +772,7 @@ export function ChatSession({
           } else if (evt.t === "error") {
             setError(evt.error ?? "Erreur inconnue.");
             if (!rolledBack) {
-              setMessages((p) => p.slice(0, -1));
+              onRollback();
               rolledBack = true;
             }
             setStreamingContent("");
@@ -1040,16 +782,125 @@ export function ChatSession({
           }
         }
       }
+    },
+    [onTitleChange],
+  );
+
+  const handleSend = useCallback(async () => {
+    if (!input.trim() || loading) return;
+    const trimmed = input.trim();
+    setInput("");
+    setError(null);
+    if (taRef.current) taRef.current.style.height = "auto";
+    inputHistoryRef.current = [trimmed, ...inputHistoryRef.current.filter((m) => m !== trimmed)].slice(0, 50);
+    historyIndexRef.current = -1;
+    savedDraftRef.current = "";
+
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: trimmed,
+      ts: new Date().toISOString(),
+    };
+    setMessages((p) => [...p, userMsg]);
+    setLoading(true);
+    setStreamingContent("");
+    // L'utilisateur vient d'envoyer : on le ramène en bas pour suivre la réponse.
+    atBottomRef.current = true;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, userMessage: trimmed, preferredProvider, webSearch }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({ error: "Erreur réseau." }));
+        const errMsg: string = data.error ?? "Erreur inconnue.";
+        if (errMsg.startsWith("OLLAMA_UNAVAILABLE:")) {
+          setModelStatus((prev) => (prev ? { ...prev, available: false } : prev));
+          setPreferredProvider("cloud");
+          setInput(trimmed);
+          if (taRef.current) taRef.current.style.height = "auto";
+          setError("Ollama indisponible, bascule sur Cloud. Réessaie avec Entrée.");
+        } else {
+          setError(errMsg);
+        }
+        setMessages((p) => p.slice(0, -1));
+        return;
+      }
+
+      await consumeStream(res, () => setMessages((p) => p.slice(0, -1)));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur réseau.");
-      setMessages((p) => p.slice(0, -1));
+      // Stop volontaire : on retire le tour et on rend son texte à l'utilisateur.
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setMessages((p) => p.slice(0, -1));
+        setInput(trimmed);
+      } else {
+        setError(e instanceof Error ? e.message : "Erreur réseau.");
+        setMessages((p) => p.slice(0, -1));
+      }
       setStreamingContent("");
       setStreamingProvider(null);
       setStreamingProviderLabel(undefined);
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
-  }, [input, loading, sessionId, onTitleChange, preferredProvider, webSearch]);
+  }, [input, loading, sessionId, preferredProvider, webSearch, consumeStream]);
+
+  // Régénère la dernière réponse de l'agent : on retire la (les) bulle(s)
+  // assistant en bout de fil, puis on rejoue le dernier message utilisateur.
+  const handleRegenerate = useCallback(async () => {
+    if (loading) return;
+    const hasAssistant = messages.length > 0 && messages[messages.length - 1].role === "assistant";
+    if (!hasAssistant) return;
+    setError(null);
+    setMessages((p) => {
+      const m = [...p];
+      while (m.length && m[m.length - 1].role === "assistant") m.pop();
+      return m;
+    });
+    setLoading(true);
+    setStreamingContent("");
+    atBottomRef.current = true;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, userMessage: "", preferredProvider, webSearch, regenerate: true }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({ error: "Erreur réseau." }));
+        setError(data.error ?? "Erreur inconnue.");
+        return;
+      }
+      // Rien à annuler côté UI sur erreur : le message utilisateur doit rester.
+      await consumeStream(res, () => {});
+    } catch (e: unknown) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setError(e instanceof Error ? e.message : "Erreur réseau.");
+      }
+      setStreamingContent("");
+      setStreamingProvider(null);
+      setStreamingProviderLabel(undefined);
+    } finally {
+      setLoading(false);
+      abortRef.current = null;
+    }
+  }, [loading, messages, sessionId, preferredProvider, webSearch, consumeStream]);
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   // Réponse en cours de génération, rendue comme DERNIER élément de la même
   // liste que les messages finaux (même position + même key par index). Quand
@@ -1067,6 +918,16 @@ export function ChatSession({
       }
     : null;
   const displayMessages = inflight ? [...messages, inflight] : messages;
+
+  // Modèles réellement en service (selon le choix local/cloud et la dispo Ollama),
+  // pour un pied de page honnête au lieu d'un « Llama3 » codé en dur.
+  const useLocal = preferredProvider === "local" && (modelStatus?.available ?? false);
+  const activeChatModel = modelStatus
+    ? prettyModelName(useLocal ? modelStatus.local.chat : modelStatus.cloud.chat)
+    : null;
+  const activeArtifactModel = modelStatus
+    ? prettyModelName(useLocal ? modelStatus.local.artifact : modelStatus.cloud.artifact)
+    : null;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: C.bg }}>
@@ -1229,137 +1090,15 @@ export function ChatSession({
           )}
         </button>
 
-        {/* Toggle local / cloud */}
-        {!isMobile && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              border: `1.5px solid ${C.border}`,
-              borderRadius: 100,
-              overflow: "hidden",
-              fontSize: 12,
-              fontWeight: 700,
-              fontFamily: "inherit",
-            }}
-          >
-            {/* Bouton Local */}
-            <button
-              onClick={() => {
-                if (ollamaAvailable === false) {
-                  // Re-check Ollama puis bascule si disponible
-                  fetch("/api/ollama-status")
-                    .then((r) => r.json())
-                    .then((data: { available: boolean }) => {
-                      setOllamaAvailable(data.available);
-                      if (data.available) setPreferredProvider("local");
-                    })
-                    .catch(() => setOllamaAvailable(false));
-                } else if (ollamaAvailable === true) {
-                  setPreferredProvider("local");
-                }
-              }}
-              title={
-                ollamaAvailable === null
-                  ? "Vérification d'Ollama…"
-                  : ollamaAvailable
-                  ? "Utiliser le modèle local (données privées)"
-                  : "Ollama indisponible, cliquer pour re-vérifier"
-              }
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "5px 11px",
-                border: "none",
-                borderRight: `1.5px solid ${C.border}`,
-                background:
-                  preferredProvider === "local" && ollamaAvailable
-                    ? "#F0FDF4"
-                    : "transparent",
-                color:
-                  ollamaAvailable === false
-                    ? C.textSub
-                    : preferredProvider === "local"
-                    ? "#16A34A"
-                    : C.textSub,
-                cursor: ollamaAvailable === null ? "default" : "pointer",
-                transition: "all 0.15s",
-                opacity: ollamaAvailable === false ? 0.5 : 1,
-                fontWeight: 700,
-                fontFamily: "inherit",
-                fontSize: 12,
-              }}
-            >
-              <span style={{ fontSize: 8, lineHeight: 1 }}>●</span>
-              Local
-              {ollamaAvailable === false && (
-                <span style={{ fontSize: 10, lineHeight: 1 }} title="Re-vérifier">↻</span>
-              )}
-              {ollamaAvailable === null && (
-                <span style={{ fontSize: 10, color: C.textSub }}>…</span>
-              )}
-            </button>
-
-            {/* Bouton Cloud */}
-            <button
-              onClick={() => setPreferredProvider("cloud")}
-              title="Utiliser Mistral Cloud"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "5px 11px",
-                border: "none",
-                background: preferredProvider === "cloud" ? "#EEF2FF" : "transparent",
-                color: preferredProvider === "cloud" ? "#6366F1" : C.textSub,
-                cursor: "pointer",
-                transition: "all 0.15s",
-                fontWeight: 700,
-                fontFamily: "inherit",
-                fontSize: 12,
-              }}
-            >
-              <span style={{ fontSize: 12, lineHeight: 1 }}>☁</span>
-              Cloud
-            </button>
-          </div>
-        )}
-
-        {/* Version mobile : icône seule */}
-        {isMobile && (
-          <button
-            onClick={() => {
-              if (preferredProvider === "cloud" && ollamaAvailable) {
-                setPreferredProvider("local");
-              } else if (preferredProvider === "local") {
-                setPreferredProvider("cloud");
-              } else {
-                fetch("/api/ollama-status")
-                  .then((r) => r.json())
-                  .then((d: { available: boolean }) => {
-                    setOllamaAvailable(d.available);
-                    if (d.available) setPreferredProvider("local");
-                  })
-                  .catch(() => setOllamaAvailable(false));
-              }
-            }}
-            title={preferredProvider === "local" ? "Local actif" : "Cloud actif"}
-            style={{
-              background: preferredProvider === "local" ? "#F0FDF4" : "#EEF2FF",
-              border: `1.5px solid ${preferredProvider === "local" ? "#16A34A" : "#6366F1"}`,
-              color: preferredProvider === "local" ? "#16A34A" : "#6366F1",
-              borderRadius: 100,
-              padding: "6px 8px",
-              cursor: "pointer",
-              fontSize: 14,
-              fontFamily: "inherit",
-              opacity: ollamaAvailable === false && preferredProvider === "local" ? 0.5 : 1,
-            }}
-          >
-            {ollamaAvailable === null ? "…" : preferredProvider === "local" ? "●" : "☁"}
-          </button>
-        )}
+        {/* Sélecteur de modèle : montre l'IA active et permet d'en changer. */}
+        <ModelSelector
+          status={modelStatus}
+          provider={preferredProvider}
+          onChange={setPreferredProvider}
+          onRefresh={() => refreshStatus()}
+          refreshing={statusRefreshing}
+          compact={isMobile}
+        />
       </div>
 
       {/* Messages */}
@@ -1392,18 +1131,26 @@ export function ChatSession({
             Plus vous donnez de contexte, plus la session sera utile.
           </div>
         )}
-        {displayMessages.map((m, i) => (
-          <MessageBubble
-            key={i}
-            msg={m}
-            agentId={agentId}
-            onConvertToTask={convertToTask}
-            taskedItems={taskedItems}
-            artifactsLoading={
-              loadingArtifacts && i === displayMessages.length - 1 && m.role === "assistant"
-            }
-          />
-        ))}
+        {displayMessages.map((m, i) => {
+          // Actions (copier / régénérer) seulement sur la DERNIÈRE réponse finale,
+          // quand rien n'est en cours (pas pendant le streaming ni l'enrichissement).
+          const isLastFinal =
+            !inflight && !loading && i === displayMessages.length - 1 && m.role === "assistant";
+          return (
+            <MessageBubble
+              key={i}
+              msg={m}
+              agentId={agentId}
+              onConvertToTask={convertToTask}
+              taskedItems={taskedItems}
+              artifactsLoading={
+                loadingArtifacts && i === displayMessages.length - 1 && m.role === "assistant"
+              }
+              showActions={isLastFinal}
+              onRegenerate={isLastFinal ? handleRegenerate : undefined}
+            />
+          );
+        })}
         {/* Annonce du provider cloud AVANT le 1er token. Une fois le texte qui
             coule, le badge compact dans l'en-tête du message suffit (pas de doublon). */}
         {streamingProvider === "cloud" && !streamingContent && (
@@ -1552,28 +1299,57 @@ export function ChatSession({
               overflowY: "auto",
             }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || loading}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 9,
-              border: "none",
-              flexShrink: 0,
-              background: input.trim() && !loading ? agent.color : C.border,
-              cursor: input.trim() && !loading ? "pointer" : "default",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transition: "background 0.15s",
-            }}
-          >
-            <Icon name="send" size={14} color="white" />
-          </button>
+          {loading ? (
+            <button
+              onClick={handleStop}
+              title="Arrêter la génération"
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 9,
+                border: "none",
+                flexShrink: 0,
+                background: "#991B1B",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 0.15s",
+              }}
+            >
+              {/* Carré « stop » */}
+              <span style={{ width: 11, height: 11, borderRadius: 2, background: "white" }} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 9,
+                border: "none",
+                flexShrink: 0,
+                background: input.trim() ? agent.color : C.border,
+                cursor: input.trim() ? "pointer" : "default",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 0.15s",
+              }}
+            >
+              <Icon name="send" size={14} color="white" />
+            </button>
+          )}
         </div>
         <div style={{ marginTop: 5, fontSize: 11, color: C.textMute, textAlign: "center" }}>
-          Entrée pour envoyer · Shift+Entrée pour saut de ligne · Llama3 + Qwen2.5-Coder (livrables)
+          Entrée pour envoyer · Shift+Entrée pour saut de ligne
+          {activeChatModel && (
+            <>
+              {" · "}
+              {activeChatModel} + {activeArtifactModel} (livrables)
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -8,39 +8,47 @@ import {
   type ProjectType,
 } from "@/lib/data";
 import { generateArtifacts } from "@/lib/artifacts";
-import { callChatModel, describeLLMError, type LLMMessage } from "@/lib/llm";
+import { callChatModelStream, type LLMMessage } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
+import { gatherWebContext } from "@/lib/web-search";
 
 export const runtime = "nodejs";
 
-interface AgentStepRequest {
-  sessionId: string;
-  agentIds: AgentId[];
-  step: number;
-  previousReplies: Array<{ agentId: AgentId; content: string }>;
-  userMessage?: string; // requis pour step 0
-  isSynthesis?: false;
-  preferredProvider?: "local" | "cloud";
-}
+// Orchestration du panel multi-agents EN STREAMING, en UN SEUL appel.
+//
+// Avant : le client faisait N+1 requêtes séquentielles (une par agent + synthèse),
+// chacune relisant ET réécrivant tout le JSONB de session, sans streaming → de
+// longs blancs. Désormais : le serveur lit la session une fois, fait répondre les
+// agents l'un après l'autre EN STREAMANT chaque token (NDJSON), puis la synthèse,
+// et n'écrit en base qu'une fois à la fin (best-effort même en cas d'erreur, pour
+// ne pas perdre les réponses déjà produites).
+//
+// Événements NDJSON émis :
+//   { t: "title", title }
+//   { t: "agent-start", agentId, provider, providerLabel }
+//   { t: "chunk", agentId, c }                      // agentId = "__synthesis__" pour la synthèse
+//   { t: "agent-done", agentId, message }
+//   { t: "agent-artifacts", agentId, artifacts }
+//   { t: "synthesis-start", provider, providerLabel }
+//   { t: "synthesis-done", message }
+//   { t: "error", error }
+//   { t: "done" }
 
-interface SynthesisRequest {
+interface PanelChatRequest {
   sessionId: string;
-  agentIds: AgentId[];
-  isSynthesis: true;
   userMessage: string;
-  allReplies: Array<{ agentId: AgentId; content: string }>;
   preferredProvider?: "local" | "cloud";
+  webSearch?: boolean;
+  challenger?: boolean;
 }
-
-type PanelChatRequest = AgentStepRequest | SynthesisRequest;
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as PanelChatRequest;
-  const { sessionId, agentIds } = body;
+  const { sessionId, userMessage, preferredProvider, webSearch, challenger } =
+    (await req.json()) as PanelChatRequest;
 
-  if (!sessionId || !agentIds?.length) {
-    return NextResponse.json({ error: "sessionId et agentIds requis." }, { status: 400 });
+  if (!sessionId || !userMessage?.trim()) {
+    return NextResponse.json({ error: "sessionId et userMessage requis." }, { status: 400 });
   }
 
   const supabase = createClient();
@@ -51,7 +59,7 @@ export async function POST(req: Request) {
 
   const { data: session, error: sessErr } = await supabase
     .from("sessions")
-    .select("id, agent_id, project_type, messages, title")
+    .select("id, project_type, challenger_mode, messages, title, panel_agent_ids")
     .eq("id", sessionId)
     .eq("user_id", user.id)
     .single();
@@ -59,142 +67,199 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Session introuvable." }, { status: 404 });
   }
 
+  // Les agents du panel viennent de la session (source de vérité), validés.
+  const panelIds = (Array.isArray(session.panel_agent_ids) ? session.panel_agent_ids : []).filter(
+    (id): id is AgentId => typeof id === "string" && id in AGENTS,
+  );
+  if (panelIds.length < 2) {
+    return NextResponse.json({ error: "Cette session n'est pas un panel valide." }, { status: 400 });
+  }
+
+  const projectType = session.project_type as ProjectType;
+  const challengerOn = challenger ?? Boolean(session.challenger_mode);
   const history: ChatMessage[] = Array.isArray(session.messages) ? session.messages : [];
   const now = new Date().toISOString();
 
-  // ── Étape de synthèse ────────────────────────────────────────────────────
-  if (body.isSynthesis) {
-    const { allReplies, userMessage, preferredProvider } = body;
-
-    const repliesText = allReplies
-      .map((r) => `--- ${AGENTS[r.agentId].name} ---\n${r.content}`)
-      .join("\n\n");
-
-    const llmMessages: LLMMessage[] = [
-      { role: "system", content: buildSynthesisSystemPrompt() },
-      {
-        role: "user",
-        content: `Question posée au panel : "${userMessage}"\n\nRéponses des experts :\n\n${repliesText}\n\nProduis maintenant ta synthèse.`,
-      },
-    ];
-
-    let raw: string;
-    let provider: "local" | "cloud";
-    let providerLabel: string;
-    try {
-      const result = await callChatModel(llmMessages, { forceProvider: preferredProvider });
-      raw = result.data;
-      provider = result.provider;
-      providerLabel = result.providerLabel;
-    } catch (e: unknown) {
-      return NextResponse.json({ error: describeLLMError(e) }, { status: 503 });
-    }
-
-    const parsed = parseAgentReply(raw);
-    const synthesisMsg: ChatMessage = {
-      role: "assistant",
-      agentId: "__synthesis__",
-      content: parsed.content,
-      ts: now,
-      provider,
-      providerLabel,
-    };
-    if (parsed.deliverables.length) synthesisMsg.deliverables = parsed.deliverables;
-
-    const finalMessages = [...history, synthesisMsg];
-    await supabase
-      .from("sessions")
-      .update({ messages: finalMessages, updated_at: now })
-      .eq("id", sessionId);
-
-    return NextResponse.json({ message: synthesisMsg });
-  }
-
-  // ── Étape d'un agent ─────────────────────────────────────────────────────
-  const { step, previousReplies, userMessage, preferredProvider } = body as AgentStepRequest;
-  const agentId = agentIds[step];
-  if (!agentId || !AGENTS[agentId]) {
-    return NextResponse.json({ error: `Agent inconnu à l'étape ${step}.` }, { status: 400 });
-  }
-
-  let updatedHistory = [...history];
-  let title = session.title as string | null;
-
-  // Étape 0 : ajouter le message utilisateur
-  if (step === 0) {
-    if (!userMessage?.trim()) {
-      return NextResponse.json({ error: "userMessage requis pour step 0." }, { status: 400 });
-    }
-    const userMsg: ChatMessage = { role: "user", content: userMessage.trim(), ts: now };
-    updatedHistory = [...history, userMsg];
-    title = title ?? userMessage.trim().slice(0, 60) + (userMessage.trim().length > 60 ? "…" : "");
-  }
+  const userMsg: ChatMessage = { role: "user", content: userMessage.trim(), ts: now };
+  const updatedHistory = [...history, userMsg];
+  const newTitle =
+    (session.title as string | null) ??
+    userMsg.content.slice(0, 60) + (userMsg.content.length > 60 ? "…" : "");
 
   const fullName =
     typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "";
   const firstName = fullName.trim().split(/\s+/)[0] || "";
-  // Saluer uniquement sur le tout premier message de la session, et seulement
-  // par le premier agent du panel (step 0 sans réponses précédentes).
-  const isFirstReply =
-    history.length === 0 && step === 0 && (previousReplies?.length ?? 0) === 0;
 
-  const systemPrompt = buildPanelAgentPrompt(
-    agentId,
-    agentIds,
-    previousReplies ?? [],
-    session.project_type as ProjectType,
-    isFirstReply && firstName ? firstName : undefined,
-  );
-
-  // On n'inclut que les messages user dans l'historique (les réponses
-  // des autres agents panel sont injectées via le system prompt).
-  const llmMessages: LLMMessage[] = [
-    { role: "system", content: systemPrompt },
-    ...updatedHistory
-      .filter((m) => m.role === "user")
-      .map((m) => ({ role: "user" as const, content: m.content })),
-  ];
-
-  let raw: string;
-  let provider: "local" | "cloud";
-  let providerLabel: string;
-  try {
-    const result = await callChatModel(llmMessages, { forceProvider: preferredProvider });
-    raw = result.data;
-    provider = result.provider;
-    providerLabel = result.providerLabel;
-  } catch (e: unknown) {
-    return NextResponse.json({ error: describeLLMError(e) }, { status: 503 });
+  // Recherche web partagée : UNE seule recherche, injectée dans le prompt de tous
+  // les agents (au lieu de N recherches). Citations [1], [2]… cohérentes.
+  let webContext = "";
+  let webSources: { title: string; url: string }[] = [];
+  if (webSearch) {
+    const research = await gatherWebContext(updatedHistory, preferredProvider);
+    webContext = research.webContext;
+    webSources = research.sources;
   }
+  const webFormatReminder = webContext
+    ? "\n\nRAPPEL : appuie-toi sur les informations web ci-dessus et cite-les avec [1], [2]… quand tu les utilises."
+    : "";
 
-  const parsed = parseAgentReply(raw);
-  const agentMsg: ChatMessage = {
-    role: "assistant",
-    agentId,
-    content: parsed.content,
-    ts: now,
-    provider,
-    providerLabel,
-  };
-  if (parsed.deliverables.length) agentMsg.deliverables = parsed.deliverables;
-  if (parsed.challenges.length) agentMsg.challenges = parsed.challenges;
+  // Les agents ne voient que les messages UTILISATEUR dans l'historique LLM ; les
+  // réponses des autres agents leur sont injectées via le system prompt (débat).
+  const userTurns: LLMMessage[] = updatedHistory
+    .filter((m) => m.role === "user")
+    .map((m) => ({ role: "user" as const, content: m.content }));
 
-  // Génération d'artefacts si des livrables ont été annoncés
-  if (parsed.deliverables.length) {
-    const artifacts = await generateArtifacts({
-      conversation: updatedHistory,
-      assistantReply: parsed.content,
-      deliverableTitles: parsed.deliverables,
-      forceProvider: preferredProvider,
-    });
-    if (artifacts.length) agentMsg.artifacts = artifacts;
-  }
+  const encoder = new TextEncoder();
 
-  const finalMessages = [...updatedHistory, agentMsg];
-  await supabase
-    .from("sessions")
-    .update({ messages: finalMessages, title, updated_at: now })
-    .eq("id", sessionId);
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
 
-  return NextResponse.json({ message: agentMsg, title: step === 0 ? title : undefined });
+      // Réponses déjà produites — persistées même si une étape ultérieure plante.
+      const agentMsgs: ChatMessage[] = [];
+      const previousReplies: Array<{ agentId: AgentId; content: string }> = [];
+
+      const persist = async (msgs: ChatMessage[]) => {
+        await supabase
+          .from("sessions")
+          .update({
+            messages: [...updatedHistory, ...msgs],
+            title: newTitle,
+            challenger_mode: challengerOn,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", sessionId);
+      };
+
+      try {
+        send({ t: "title", title: newTitle });
+
+        // ── Tour de table des agents ────────────────────────────────────────
+        for (let i = 0; i < panelIds.length; i++) {
+          const agentId = panelIds[i];
+          const isFirstReply = history.length === 0 && i === 0;
+
+          const systemPrompt =
+            buildPanelAgentPrompt(
+              agentId,
+              panelIds,
+              previousReplies,
+              projectType,
+              challengerOn,
+              isFirstReply && firstName ? firstName : undefined,
+            ) +
+            webContext +
+            webFormatReminder;
+
+          const { provider, providerLabel, data: textStream } = await callChatModelStream(
+            [{ role: "system", content: systemPrompt }, ...userTurns],
+            { forceProvider: preferredProvider },
+          );
+
+          send({ t: "agent-start", agentId, provider, providerLabel });
+
+          let raw = "";
+          for await (const chunk of textStream) {
+            raw += chunk;
+            send({ t: "chunk", agentId, c: chunk });
+          }
+
+          const parsed = parseAgentReply(raw.trim());
+          const agentMsg: ChatMessage = {
+            role: "assistant",
+            agentId,
+            content: parsed.content,
+            ts: new Date().toISOString(),
+            provider,
+            providerLabel,
+          };
+          if (parsed.deliverables.length) agentMsg.deliverables = parsed.deliverables;
+          if (parsed.challenges.length) agentMsg.challenges = parsed.challenges;
+          if (webSources.length) agentMsg.sources = webSources;
+
+          send({ t: "agent-done", agentId, message: agentMsg });
+
+          // 2e passe artefacts (livrables → tableaux/documents).
+          if (parsed.deliverables.length) {
+            const artifacts = await generateArtifacts({
+              conversation: updatedHistory,
+              assistantReply: parsed.content,
+              deliverableTitles: parsed.deliverables,
+              forceProvider: preferredProvider,
+            });
+            if (artifacts.length) {
+              agentMsg.artifacts = artifacts;
+              send({ t: "agent-artifacts", agentId, artifacts });
+            }
+          }
+
+          agentMsgs.push(agentMsg);
+          previousReplies.push({ agentId, content: parsed.content });
+        }
+
+        // ── Synthèse ────────────────────────────────────────────────────────
+        const repliesText = previousReplies
+          .map((r) => `--- ${AGENTS[r.agentId].name} ---\n${r.content}`)
+          .join("\n\n");
+
+        const synthMessages: LLMMessage[] = [
+          { role: "system", content: buildSynthesisSystemPrompt() },
+          {
+            role: "user",
+            content: `Question posée au panel : "${userMsg.content}"\n\nRéponses des experts :\n\n${repliesText}\n\nProduis maintenant ta synthèse.`,
+          },
+        ];
+
+        const {
+          provider: sProvider,
+          providerLabel: sLabel,
+          data: synthStream,
+        } = await callChatModelStream(synthMessages, { forceProvider: preferredProvider });
+
+        send({ t: "synthesis-start", provider: sProvider, providerLabel: sLabel });
+
+        let synthRaw = "";
+        for await (const chunk of synthStream) {
+          synthRaw += chunk;
+          send({ t: "chunk", agentId: "__synthesis__", c: chunk });
+        }
+
+        const synthParsed = parseAgentReply(synthRaw.trim());
+        const synthesisMsg: ChatMessage = {
+          role: "assistant",
+          agentId: "__synthesis__",
+          content: synthParsed.content,
+          ts: new Date().toISOString(),
+          provider: sProvider,
+          providerLabel: sLabel,
+        };
+        if (synthParsed.deliverables.length) synthesisMsg.deliverables = synthParsed.deliverables;
+
+        send({ t: "synthesis-done", message: synthesisMsg });
+
+        await persist([...agentMsgs, synthesisMsg]);
+        send({ t: "done" });
+        controller.close();
+      } catch (e: unknown) {
+        // Best-effort : on garde les réponses déjà produites pour ne pas tout perdre.
+        if (agentMsgs.length) {
+          try {
+            await persist(agentMsgs);
+          } catch {
+            /* tant pis */
+          }
+        }
+        send({ t: "error", error: e instanceof Error ? e.message : "Erreur du panel." });
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
