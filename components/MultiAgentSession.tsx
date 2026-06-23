@@ -4,7 +4,6 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import { marked } from "marked";
 import { AGENTS, Agent, AgentId, Artifact, ChatMessage, ProjectType, PROJECT_TYPES, SYNTHESIS_META } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
-import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import type { ProjectLite } from "./AppDataProvider";
 import { Icon, IconName } from "./Icon";
@@ -27,7 +26,7 @@ interface AgentLoadState {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function groupIntoRounds(messages: ChatMessage[], panelAgentIds: AgentId[]): PanelRound[] {
+function groupIntoRounds(messages: ChatMessage[]): PanelRound[] {
   const rounds: PanelRound[] = [];
   let i = 0;
   while (i < messages.length) {
@@ -447,7 +446,6 @@ export function MultiAgentSession({
   onLinkProject,
 }: MultiAgentSessionProps) {
   const isMobile = useIsMobile();
-  const supabase = createClient();
   const typeMeta = PROJECT_TYPES[projectType];
 
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -570,7 +568,7 @@ export function MultiAgentSession({
   }, [input, isLoading, sessionId, panelAgentIds, onTitleChange]);
 
   // Reconstitue les rounds pour l'affichage
-  const rounds = groupIntoRounds(messages, panelAgentIds);
+  const rounds = groupIntoRounds(messages);
 
   // Trouve les états de chargement en cours pour les afficher dans un "round en cours"
   const currentLoadingAgents = loadStates.filter((s) => s.status !== "done");

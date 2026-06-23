@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { marked } from "marked";
 import {
   AGENTS,
@@ -703,7 +703,9 @@ function ArtifactsEnriching({ color }: { color: string }) {
   );
 }
 
-function MessageBubble({
+// Mémoïsé : pendant le streaming, seul le dernier message (en cours) change.
+// Sans memo, chaque token re-rendait TOUT l'historique des bulles.
+const MessageBubble = memo(function MessageBubble({
   msg,
   agentId,
   onConvertToTask,
@@ -809,7 +811,7 @@ function MessageBubble({
       </div>
     </div>
   );
-}
+});
 
 export function ChatSession({
   sessionId,
