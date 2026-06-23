@@ -110,7 +110,7 @@ import { encryptSecret, decryptSecret } from "./crypto";
 
 beforeAll(() => {
   process.env.API_KEY_ENCRYPTION_SECRET =
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd";
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 });
 
 describe("encryptSecret / decryptSecret", () => {
@@ -1386,7 +1386,7 @@ import { encryptSecret } from "./crypto";
 
 beforeAll(() => {
   process.env.API_KEY_ENCRYPTION_SECRET =
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd";
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 });
 
 function fakeSupabase(profileRow: unknown, keyRow: unknown) {
