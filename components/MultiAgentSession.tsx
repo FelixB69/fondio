@@ -18,7 +18,7 @@ import {
   SYNTHESIS_META,
 } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
-import { type ModelStatus } from "@/lib/models";
+import { type ModelProvider, type ModelStatus } from "@/lib/models";
 import { stripTrailingSections } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -741,7 +741,7 @@ export function MultiAgentSession({
   const [error, setError] = useState<string | null>(null);
 
   // Réglages partagés avec le chat simple.
-  const [preferredProvider, setPreferredProvider] = useState<"local" | "cloud">("cloud");
+  const [preferredProvider, setPreferredProvider] = useState<ModelProvider>("cloud");
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [statusRefreshing, setStatusRefreshing] = useState(false);
   const [challenger, setChallenger] = useState(initialChallenger);

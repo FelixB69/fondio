@@ -11,7 +11,7 @@ import {
   SessionRow,
 } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
-import { prettyModelName, type ModelStatus } from "@/lib/models";
+import { prettyModelName, type ModelProvider, type ModelStatus } from "@/lib/models";
 import { stripTrailingSections } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -615,7 +615,7 @@ export function ChatSession({
   const [webSearch, setWebSearch] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taskedItems, setTaskedItems] = useState<Set<string>>(new Set());
-  const [preferredProvider, setPreferredProvider] = useState<"local" | "cloud">("cloud");
+  const [preferredProvider, setPreferredProvider] = useState<ModelProvider>("cloud");
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [statusRefreshing, setStatusRefreshing] = useState(false);
 

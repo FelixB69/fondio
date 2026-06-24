@@ -12,7 +12,7 @@
 // Les vraies valeurs d'id viennent toujours de lib/llm.ts (qui lit l'env) ; ici
 // on ne fait que les EMBELLIR.
 
-export type ModelProvider = "local" | "cloud";
+export type ModelProvider = "local" | "cloud" | "byok";
 
 // Chaque modèle a un rôle distinct dans le produit (on n'a pas un seul cerveau) :
 //  - "chat"     : la conversation principale avec l'agent.
@@ -38,6 +38,15 @@ export const ROLE_LABELS: Record<ModelRole, string> = {
 // seule règle. Le premier préfixe qui matche gagne, donc on range du plus
 // spécifique au plus générique.
 const PRETTY_RULES: Array<{ prefix: string; name: string; family: string }> = [
+  { prefix: "claude-sonnet", name: "Claude Sonnet", family: "Claude" },
+  { prefix: "claude-opus", name: "Claude Opus", family: "Claude" },
+  { prefix: "claude-haiku", name: "Claude Haiku", family: "Claude" },
+  { prefix: "claude", name: "Claude", family: "Claude" },
+  { prefix: "gpt-4o-mini", name: "GPT-4o mini", family: "GPT" },
+  { prefix: "gpt-4o", name: "GPT-4o", family: "GPT" },
+  { prefix: "gpt", name: "GPT", family: "GPT" },
+  { prefix: "gemini-2.0-flash", name: "Gemini Flash", family: "Gemini" },
+  { prefix: "gemini", name: "Gemini", family: "Gemini" },
   { prefix: "qwen2.5-coder", name: "Qwen 2.5 Coder", family: "Qwen" },
   { prefix: "qwen3", name: "Qwen 3", family: "Qwen" },
   { prefix: "qwen2.5", name: "Qwen 2.5", family: "Qwen" },
@@ -84,6 +93,9 @@ export function modelLabel(id: string, provider: ModelProvider): string {
 
 // Note de confidentialité associée au provider — c'est l'argument clé de Fondio.
 export function providerPrivacyNote(provider: ModelProvider): string {
+  if (provider === "byok") {
+    return "Appel direct à l'API du fournisseur avec votre clé personnelle — facturé par lui, pas par Fondio.";
+  }
   return provider === "local"
     ? "Tourne sur votre machine via Ollama. Vos données ne quittent pas votre ordinateur."
     : "Appel à l'API Mistral (serveurs en Europe). Utilisé en secours quand le modèle local est indisponible.";
@@ -96,4 +108,13 @@ export interface ModelStatus {
   available: boolean; // Ollama local joignable ?
   local: { chat: string; artifact: string; tool: string };
   cloud: { chat: string; artifact: string; configured: boolean };
+  // Optionnel : Task 10 remplit ce champ quand /api/ollama-status expose la
+  // config BYOK. Optionnel (et pas requis) pour ne pas casser le typecheck
+  // des appelants existants qui construisent un ModelStatus sans BYOK.
+  byok?: {
+    configured: boolean;
+    provider: "anthropic" | "openai" | "google" | "mistral_byok" | null;
+    label: string | null;
+    chatModel: string | null;
+  } | null;
 }
