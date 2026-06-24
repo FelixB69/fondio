@@ -155,18 +155,24 @@ function TypingDots({ color, label }: { color: string; label: string }) {
   );
 }
 
-function ProviderBadge({ provider, label }: { provider: "local" | "cloud"; label?: string }) {
+function ProviderBadge({ provider, label }: { provider: "local" | "cloud" | "byok"; label?: string }) {
   const isCloud = provider === "cloud";
-  const color = isCloud ? "#D97706" : "#16A34A";
-  const icon = isCloud ? "☁" : "●";
-  const text = label ?? (isCloud ? "Mistral Cloud" : "Modèle local");
+  const PROVIDER_STYLES = {
+    local: { color: "#16A34A", icon: "●", defaultText: "Modèle local" },
+    cloud: { color: "#D97706", icon: "☁", defaultText: "Mistral Cloud" },
+    byok: { color: "#7C3AED", icon: "🔑", defaultText: "Votre clé" },
+  } as const;
+  const { color, icon, defaultText } = PROVIDER_STYLES[provider];
+  const text = label ?? defaultText;
+  const title =
+    provider === "byok"
+      ? "Réponse générée avec votre clé API personnelle (BYOK)."
+      : isCloud
+        ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
+        : "Réponse générée par votre modèle Ollama local.";
   return (
     <span
-      title={
-        isCloud
-          ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
-          : "Réponse générée par votre modèle Ollama local."
-      }
+      title={title}
       style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, color, fontWeight: 600 }}
     >
       <span style={{ fontSize: isCloud ? 11 : 7, lineHeight: 1 }}>{icon}</span>

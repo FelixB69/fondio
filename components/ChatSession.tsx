@@ -43,26 +43,29 @@ function ProviderBadge({
   label,
   variant = "compact",
 }: {
-  provider: "local" | "cloud";
+  provider: "local" | "cloud" | "byok";
   label?: string;
   variant?: "compact" | "announce";
 }) {
   const isCloud = provider === "cloud";
-  const color = isCloud ? "#D97706" : "#16A34A";
-  const bg = isCloud ? "#FFF7ED" : "#F0FDF4";
-  const border = isCloud ? "#FED7AA" : "#BBF7D0";
-  const icon = isCloud ? "☁" : "●";
-  const text =
-    label ?? (isCloud ? "Mistral Cloud" : "Modèle local");
+  const PROVIDER_STYLES = {
+    local: { color: "#16A34A", bg: "#F0FDF4", border: "#BBF7D0", icon: "●", defaultText: "Modèle local" },
+    cloud: { color: "#D97706", bg: "#FFF7ED", border: "#FED7AA", icon: "☁", defaultText: "Mistral Cloud" },
+    byok: { color: "#7C3AED", bg: "#F5F3FF", border: "#DDD6FE", icon: "🔑", defaultText: "Votre clé" },
+  } as const;
+  const { color, bg, border, icon, defaultText } = PROVIDER_STYLES[provider];
+  const text = label ?? defaultText;
 
   if (variant === "announce") {
+    const title =
+      provider === "byok"
+        ? "Réponse générée avec votre clé API personnelle (BYOK)."
+        : isCloud
+          ? "Ollama local indisponible, bascule automatique sur l'API Mistral (EU)."
+          : "Réponse générée par votre modèle Ollama local.";
     return (
       <div
-        title={
-          isCloud
-            ? "Ollama local indisponible, bascule automatique sur l'API Mistral (EU)."
-            : "Réponse générée par votre modèle Ollama local."
-        }
+        title={title}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -83,13 +86,16 @@ function ProviderBadge({
     );
   }
 
+  const compactTitle =
+    provider === "byok"
+      ? "Réponse générée avec votre clé API personnelle (BYOK)."
+      : isCloud
+        ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
+        : "Réponse générée par votre modèle Ollama local.";
+
   return (
     <span
-      title={
-        isCloud
-          ? "Réponse générée via l'API Mistral (Ollama local était indisponible)."
-          : "Réponse générée par votre modèle Ollama local."
-      }
+      title={compactTitle}
       style={{
         display: "inline-flex",
         alignItems: "center",

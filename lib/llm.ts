@@ -11,7 +11,12 @@ const OLLAMA_ARTIFACT_MODEL = process.env.OLLAMA_ARTIFACT_MODEL ?? "qwen2.5-code
 // déjà le modèle d'artefacts.
 const OLLAMA_TOOL_MODEL = process.env.OLLAMA_TOOL_MODEL ?? "llama3.1";
 
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
+// Lu en différé (fonction, pas const au chargement du module) : permet aux
+// tests de positionner process.env.MISTRAL_API_KEY après l'import du module,
+// et reflète un éventuel changement d'env sans redémarrage du process.
+function getMistralApiKey(): string | undefined {
+  return process.env.MISTRAL_API_KEY;
+}
 const MISTRAL_BASE_URL = process.env.MISTRAL_BASE_URL ?? "https://api.mistral.ai/v1";
 const MISTRAL_MODEL = process.env.MISTRAL_MODEL ?? "mistral-small-latest";
 const MISTRAL_ARTIFACT_MODEL = process.env.MISTRAL_ARTIFACT_MODEL ?? "codestral-latest";
@@ -25,9 +30,10 @@ export interface CallOptions {
   jsonMode?: boolean;
   useArtifactModel?: boolean;
   forceProvider?: "local" | "cloud";
+  byok?: BYOKConfig | null;
 }
 
-export type LLMProvider = "local" | "cloud";
+export type LLMProvider = "local" | "cloud" | "byok";
 
 export interface LLMResult<T> {
   provider: LLMProvider;
@@ -53,7 +59,7 @@ export const MODELS = {
   cloud: {
     chat: MISTRAL_MODEL,
     artifact: MISTRAL_ARTIFACT_MODEL,
-    configured: Boolean(MISTRAL_API_KEY),
+    configured: Boolean(getMistralApiKey()),
   },
 } as const;
 
@@ -82,6 +88,14 @@ export async function callChatModel(
   messages: LLMMessage[],
   opts?: CallOptions,
 ): Promise<LLMResult<string>> {
+  if (opts?.byok && opts.forceProvider !== "local") {
+    try {
+      const data = await callByokJson(opts.byok, messages, opts);
+      return { provider: "byok", providerLabel: byokProviderLabel(opts.byok), data };
+    } catch (e) {
+      console.error("BYOK indisponible, repli local/cloud :", describeByokError(opts.byok, e));
+    }
+  }
   if (opts?.forceProvider === "cloud") {
     const data = await callMistralJson(messages, opts);
     return { provider: "cloud", providerLabel: cloudLabel(opts), data };
@@ -124,7 +138,8 @@ async function callOllamaJson(messages: LLMMessage[], opts?: CallOptions): Promi
 }
 
 async function callMistralJson(messages: LLMMessage[], opts?: CallOptions): Promise<string> {
-  if (!MISTRAL_API_KEY) {
+  const apiKey = getMistralApiKey();
+  if (!apiKey) {
     throw new Error(
       `Ollama injoignable sur ${OLLAMA_BASE_URL} et MISTRAL_API_KEY non configurée. ` +
         `Lancez \`ollama serve\` ou ajoutez MISTRAL_API_KEY dans .env.`,
@@ -134,7 +149,7 @@ async function callMistralJson(messages: LLMMessage[], opts?: CallOptions): Prom
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${MISTRAL_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: pickMistralModel(opts),
@@ -403,10 +418,6 @@ async function callAnthropicTools(
   return { content, toolCalls };
 }
 
-// Alias d'export réservé aux tests — la fonction reste interne au module pour
-// le code applicatif (accédée via callByokJson dans Task 6).
-export { callAnthropicJson as callAnthropicJsonForTest };
-
 // OpenAI et Mistral (et donc "mistral_byok") parlent le même protocole Chat
 // Completions : on factorise un seul adaptateur paramétré par baseUrl/clé/modèle,
 // au lieu de dupliquer callMistralJson/Stream/Tools une 2e fois pour OpenAI.
@@ -488,8 +499,6 @@ async function callOpenAICompatibleTools(
     toolCalls: (msg?.tool_calls ?? []).map((t) => ({ id: t.id, name: t.function.name, arguments: t.function.arguments })),
   };
 }
-
-export { callOpenAICompatibleJson as callOpenAICompatibleJsonForTest };
 
 const GOOGLE_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -646,7 +655,105 @@ async function callGoogleTools(
   return { content, toolCalls };
 }
 
-export { callGoogleJson as callGoogleJsonForTest };
+// ── Dispatch BYOK ────────────────────────────────────────────────────────────
+//
+// Table des modèles par défaut pour chaque fournisseur BYOK : un modèle "chat"
+// (conversation normale) et un modèle "artifact" (génération de documents,
+// même logique que pickOllamaModel/pickMistralModel plus haut).
+
+const BYOK_MODELS: Record<BYOKProviderId, { chat: string; artifact: string; label: string }> = {
+  anthropic: { chat: "claude-sonnet-4-6", artifact: "claude-sonnet-4-6", label: "Claude Sonnet" },
+  openai: { chat: "gpt-4o-mini", artifact: "gpt-4o-mini", label: "GPT-4o mini" },
+  google: { chat: "gemini-2.0-flash", artifact: "gemini-2.0-flash", label: "Gemini Flash" },
+  mistral_byok: { chat: "mistral-small-latest", artifact: "codestral-latest", label: "Mistral Small" },
+};
+
+export function byokDisplayLabel(provider: BYOKProviderId): string {
+  return BYOK_MODELS[provider].label;
+}
+
+function byokProviderLabel(byok: BYOKConfig): string {
+  return `${BYOK_MODELS[byok.provider].label} · votre clé`;
+}
+
+function byokModelFor(byok: BYOKConfig, opts?: CallOptions): string {
+  return opts?.useArtifactModel ? BYOK_MODELS[byok.provider].artifact : BYOK_MODELS[byok.provider].chat;
+}
+
+async function callByokJson(byok: BYOKConfig, messages: LLMMessage[], opts?: CallOptions): Promise<string> {
+  const model = byokModelFor(byok, opts);
+  switch (byok.provider) {
+    case "anthropic":
+      return callAnthropicJson(messages, byok.apiKey, model);
+    case "openai":
+      return callOpenAICompatibleJson("https://api.openai.com/v1", byok.apiKey, model, messages, opts);
+    case "google":
+      return callGoogleJson(messages, byok.apiKey, model);
+    case "mistral_byok":
+      return callOpenAICompatibleJson("https://api.mistral.ai/v1", byok.apiKey, model, messages, opts);
+  }
+}
+
+async function callByokStream(byok: BYOKConfig, messages: LLMMessage[]): Promise<AsyncIterable<string>> {
+  const model = BYOK_MODELS[byok.provider].chat;
+  switch (byok.provider) {
+    case "anthropic":
+      return callAnthropicStream(messages, byok.apiKey, model);
+    case "openai":
+      return callOpenAICompatibleStream("https://api.openai.com/v1", byok.apiKey, model, messages);
+    case "google":
+      return callGoogleStream(messages, byok.apiKey, model);
+    case "mistral_byok":
+      return callOpenAICompatibleStream("https://api.mistral.ai/v1", byok.apiKey, model, messages);
+  }
+}
+
+async function callByokTools(
+  byok: BYOKConfig,
+  messages: ToolLoopMessage[],
+  tools: ToolDef[],
+): Promise<ToolTurnResult> {
+  const model = BYOK_MODELS[byok.provider].chat;
+  switch (byok.provider) {
+    case "anthropic":
+      return callAnthropicTools(messages, tools, byok.apiKey, model);
+    case "openai":
+      return callOpenAICompatibleTools("https://api.openai.com/v1", byok.apiKey, model, messages, tools);
+    case "google":
+      return callGoogleTools(messages, tools, byok.apiKey, model);
+    case "mistral_byok":
+      return callOpenAICompatibleTools("https://api.mistral.ai/v1", byok.apiKey, model, messages, tools);
+  }
+}
+
+function describeByokError(byok: BYOKConfig, e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  const label = BYOK_MODELS[byok.provider].label;
+  if (msg.includes("401") || msg.includes("403")) return `Clé ${label} invalide ou expirée.`;
+  if (msg.includes("429")) return `Quota ${label} dépassé.`;
+  return `${label} indisponible (${msg.slice(0, 120)}).`;
+}
+
+// Test minimal d'une clé avant de l'enregistrer (route /api/account/api-keys).
+export async function testByokKey(
+  provider: BYOKProviderId,
+  apiKey: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await callByokJson({ provider, apiKey }, [{ role: "user", content: 'Réponds juste "ok".' }]);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erreur inconnue." };
+  }
+}
+
+// Exports internes réservés aux tests (lib/llm.test.ts) — pas utilisés par le
+// reste de l'app, qui passe toujours par callChatModel/Stream ou callModelWithTools.
+export {
+  callAnthropicJson as __callAnthropicJsonForTest,
+  callOpenAICompatibleJson as __callOpenAICompatibleJsonForTest,
+  callGoogleJson as __callGoogleJsonForTest,
+};
 
 // Ollama veut les arguments d'outil en OBJET, et n'utilise pas d'identifiant.
 function toOllamaToolMessages(messages: ToolLoopMessage[]) {
@@ -722,14 +829,15 @@ async function callOllamaTools(messages: ToolLoopMessage[], tools: ToolDef[]): P
 }
 
 async function callMistralTools(messages: ToolLoopMessage[], tools: ToolDef[]): Promise<ToolTurnResult> {
-  if (!MISTRAL_API_KEY) {
+  const apiKey = getMistralApiKey();
+  if (!apiKey) {
     throw new Error("TOOLS_NO_CLOUD: le tool-calling cloud nécessite MISTRAL_API_KEY.");
   }
   const res = await fetch(`${MISTRAL_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${MISTRAL_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: MISTRAL_MODEL,
@@ -767,8 +875,16 @@ async function callMistralTools(messages: ToolLoopMessage[], tools: ToolDef[]): 
 export async function callModelWithTools(
   messages: ToolLoopMessage[],
   tools: ToolDef[],
-  opts?: { forceProvider?: LLMProvider },
+  opts?: { forceProvider?: LLMProvider; byok?: BYOKConfig | null },
 ): Promise<LLMResult<ToolTurnResult>> {
+  if (opts?.byok && opts.forceProvider !== "local") {
+    try {
+      const data = await callByokTools(opts.byok, messages, tools);
+      return { provider: "byok", providerLabel: byokProviderLabel(opts.byok), data };
+    } catch (e) {
+      console.error("BYOK (tools) indisponible, repli local/cloud :", describeByokError(opts.byok, e));
+    }
+  }
   if (opts?.forceProvider === "cloud") {
     const data = await callMistralTools(messages, tools);
     return { provider: "cloud", providerLabel: modelLabel(MISTRAL_MODEL, "cloud"), data };
@@ -790,8 +906,16 @@ export async function callModelWithTools(
 // Retourne un async iterable de chunks de texte + le provider utilisé.
 export async function callChatModelStream(
   messages: LLMMessage[],
-  opts?: Pick<CallOptions, "forceProvider">,
+  opts?: Pick<CallOptions, "forceProvider"> & { byok?: BYOKConfig | null },
 ): Promise<LLMResult<AsyncIterable<string>>> {
+  if (opts?.byok && opts.forceProvider !== "local") {
+    try {
+      const data = await callByokStream(opts.byok, messages);
+      return { provider: "byok", providerLabel: byokProviderLabel(opts.byok), data };
+    } catch (e) {
+      console.error("BYOK indisponible, repli local/cloud :", describeByokError(opts.byok, e));
+    }
+  }
   if (opts?.forceProvider === "cloud") {
     const data = await callMistralStream(messages);
     return { provider: "cloud", providerLabel: cloudLabel(), data };
@@ -821,7 +945,8 @@ export async function callChatModelStream(
 }
 
 async function callMistralStream(messages: LLMMessage[]): Promise<AsyncIterable<string>> {
-  if (!MISTRAL_API_KEY) {
+  const apiKey = getMistralApiKey();
+  if (!apiKey) {
     throw new Error(
       `Ollama injoignable sur ${OLLAMA_BASE_URL} et MISTRAL_API_KEY non configurée. ` +
         `Lancez \`ollama serve\` ou ajoutez MISTRAL_API_KEY dans .env.`,
@@ -831,7 +956,7 @@ async function callMistralStream(messages: LLMMessage[]): Promise<AsyncIterable<
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${MISTRAL_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({ model: MISTRAL_MODEL, messages, stream: true }),
   });

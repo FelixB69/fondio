@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { callAnthropicJsonForTest as callAnthropicJson } from "./llm";
-import { callOpenAICompatibleJsonForTest as callOpenAICompatibleJson } from "./llm";
-import { callGoogleJsonForTest as callGoogleJson } from "./llm";
+import { __callAnthropicJsonForTest as callAnthropicJson } from "./llm";
+import { __callOpenAICompatibleJsonForTest as callOpenAICompatibleJson } from "./llm";
+import { __callGoogleJsonForTest as callGoogleJson } from "./llm";
+import { callChatModel, testByokKey } from "./llm";
 
 const originalFetch = global.fetch;
 
@@ -104,5 +105,79 @@ describe("Google Gemini adapter — callGoogleJson", () => {
     const body = JSON.parse(init.body as string);
     expect(body.systemInstruction.parts[0].text).toBe("Tu es un assistant.");
     expect(body.contents).toEqual([{ role: "user", parts: [{ text: "Salut" }] }]);
+  });
+});
+
+describe("callChatModel with byok", () => {
+  it("uses the byok provider when configured and forceProvider is not 'local'", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: [{ type: "text", text: "Réponse Claude" }] }),
+    });
+
+    const result = await callChatModel([{ role: "user", content: "Salut" }], {
+      byok: { provider: "anthropic", apiKey: "sk-ant-test" },
+    });
+
+    expect(result.provider).toBe("byok");
+    expect(result.data).toBe("Réponse Claude");
+  });
+
+  it("falls back to local/cloud when the byok call fails, without throwing", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    // 1er appel : Anthropic échoue (clé invalide)
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 401, text: async () => "invalid" });
+    // 2e appel : Ollama (local) injoignable
+    fetchMock.mockRejectedValueOnce(new Error("fetch failed"));
+    // 3e appel : Mistral Fondio répond
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "Réponse Mistral" } }] }),
+    });
+    process.env.MISTRAL_API_KEY = "fondio-test-key";
+
+    const result = await callChatModel([{ role: "user", content: "Salut" }], {
+      byok: { provider: "anthropic", apiKey: "sk-ant-bad" },
+    });
+
+    expect(result.provider).toBe("cloud");
+    expect(result.data).toBe("Réponse Mistral");
+  });
+
+  it("ignores byok when forceProvider is 'local'", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ message: { content: "Réponse locale" } }),
+    });
+
+    const result = await callChatModel([{ role: "user", content: "Salut" }], {
+      byok: { provider: "anthropic", apiKey: "sk-ant-test" },
+      forceProvider: "local",
+    });
+
+    expect(result.provider).toBe("local");
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/chat"); // Ollama, pas Anthropic
+  });
+});
+
+describe("testByokKey", () => {
+  it("returns ok:true on a successful test call", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    });
+    const result = await testByokKey("anthropic", "sk-ant-test");
+    expect(result.ok).toBe(true);
+  });
+
+  it("returns ok:false with the error message on failure", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 401, text: async () => "invalid" });
+    const result = await testByokKey("anthropic", "sk-ant-bad");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/401/);
   });
 });

@@ -52,8 +52,9 @@ export interface ChatMessage {
   // Panel multi-agent : identifie quel agent a émis ce message.
   // "__synthesis__" pour le message de synthèse final.
   agentId?: AgentId | "__synthesis__";
-  // Indique quel provider LLM a généré la réponse (Ollama local vs API cloud).
-  provider?: "local" | "cloud";
+  // Indique quel provider LLM a généré la réponse : Ollama local, Mistral cloud
+  // Fondio, ou la clé perso de l'utilisateur (BYOK).
+  provider?: "local" | "cloud" | "byok";
   providerLabel?: string;
   // Sources web consultées pour cette réponse (recherche Tavily). L'ordre
   // correspond aux citations [1], [2]... que l'agent écrit dans son texte.
