@@ -407,6 +407,90 @@ async function callAnthropicTools(
 // le code applicatif (accédée via callByokJson dans Task 6).
 export { callAnthropicJson as callAnthropicJsonForTest };
 
+// OpenAI et Mistral (et donc "mistral_byok") parlent le même protocole Chat
+// Completions : on factorise un seul adaptateur paramétré par baseUrl/clé/modèle,
+// au lieu de dupliquer callMistralJson/Stream/Tools une 2e fois pour OpenAI.
+async function callOpenAICompatibleJson(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  messages: LLMMessage[],
+  opts?: { jsonMode?: boolean },
+): Promise<string> {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: false,
+      ...(opts?.jsonMode ? { response_format: { type: "json_object" } } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${baseUrl} ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const raw = json.choices?.[0]?.message?.content?.trim() ?? "";
+  if (!raw) throw new Error("Réponse vide du modèle.");
+  return raw;
+}
+
+async function callOpenAICompatibleStream(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  messages: LLMMessage[],
+): Promise<AsyncIterable<string>> {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages, stream: true }),
+  });
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${baseUrl} ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return mistralStreamToText(res.body); // format SSE identique chez OpenAI/Mistral
+}
+
+async function callOpenAICompatibleTools(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  messages: ToolLoopMessage[],
+  tools: ToolDef[],
+): Promise<ToolTurnResult> {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: toMistralToolMessages(messages),
+      tools,
+      tool_choice: "auto",
+      stream: false,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${baseUrl} tools ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    choices?: Array<{
+      message?: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> };
+    }>;
+  };
+  const msg = json.choices?.[0]?.message;
+  return {
+    content: msg?.content ?? "",
+    toolCalls: (msg?.tool_calls ?? []).map((t) => ({ id: t.id, name: t.function.name, arguments: t.function.arguments })),
+  };
+}
+
+export { callOpenAICompatibleJson as callOpenAICompatibleJsonForTest };
+
 // Ollama veut les arguments d'outil en OBJET, et n'utilise pas d'identifiant.
 function toOllamaToolMessages(messages: ToolLoopMessage[]) {
   return messages.map((m) => {

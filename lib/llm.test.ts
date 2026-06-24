@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { callAnthropicJsonForTest as callAnthropicJson } from "./llm";
+import { callOpenAICompatibleJsonForTest as callOpenAICompatibleJson } from "./llm";
 
 const originalFetch = global.fetch;
 
@@ -44,5 +45,37 @@ describe("Anthropic adapter — callAnthropicJson", () => {
     await expect(
       callAnthropicJson([{ role: "user", content: "x" }], "bad-key", "claude-sonnet-4-6"),
     ).rejects.toThrow(/401/);
+  });
+});
+
+describe("OpenAI-compatible adapter — callOpenAICompatibleJson", () => {
+  it("posts to {baseUrl}/chat/completions with Bearer auth", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "Bonjour" } }] }),
+    });
+
+    const result = await callOpenAICompatibleJson(
+      "https://api.openai.com/v1",
+      "sk-test",
+      "gpt-4o-mini",
+      [{ role: "user", content: "Salut" }],
+    );
+
+    expect(result).toBe("Bonjour");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(init.headers.Authorization).toBe("Bearer sk-test");
+  });
+
+  it("throws on empty response", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [] }) });
+    await expect(
+      callOpenAICompatibleJson("https://api.openai.com/v1", "sk-test", "gpt-4o-mini", [
+        { role: "user", content: "x" },
+      ]),
+    ).rejects.toThrow(/vide/);
   });
 });
