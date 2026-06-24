@@ -491,6 +491,163 @@ async function callOpenAICompatibleTools(
 
 export { callOpenAICompatibleJson as callOpenAICompatibleJsonForTest };
 
+const GOOGLE_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+// Gemini ne connaît pas le rôle "system" dans `contents` : il faut le sortir
+// dans `systemInstruction`, et "assistant" devient "model".
+function toGeminiContents(messages: LLMMessage[]) {
+  const systemText = messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n\n");
+  const contents = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+  return {
+    systemInstruction: systemText ? { parts: [{ text: systemText }] } : undefined,
+    contents,
+  };
+}
+
+async function callGoogleJson(messages: LLMMessage[], apiKey: string, model: string): Promise<string> {
+  const { systemInstruction, contents } = toGeminiContents(messages);
+  const res = await fetch(`${GOOGLE_API_BASE}/${model}:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents, ...(systemInstruction ? { systemInstruction } : {}) }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Google ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const raw = (json.candidates?.[0]?.content?.parts ?? [])
+    .map((p) => p.text ?? "")
+    .join("")
+    .trim();
+  if (!raw) throw new Error("Réponse vide du modèle.");
+  return raw;
+}
+
+async function callGoogleStream(
+  messages: LLMMessage[],
+  apiKey: string,
+  model: string,
+): Promise<AsyncIterable<string>> {
+  const { systemInstruction, contents } = toGeminiContents(messages);
+  const res = await fetch(`${GOOGLE_API_BASE}/${model}:streamGenerateContent?alt=sse&key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents, ...(systemInstruction ? { systemInstruction } : {}) }),
+  });
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Google ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return googleStreamToText(res.body);
+}
+
+async function* googleStreamToText(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
+  const decoder = new TextDecoder();
+  const reader = body.getReader();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload) continue;
+      try {
+        const json = JSON.parse(payload) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        const chunk = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+        if (chunk) yield chunk;
+      } catch {
+        // ligne SSE partielle, ignore
+      }
+    }
+  }
+}
+
+function toGeminiTools(tools: ToolDef[]) {
+  return [
+    {
+      functionDeclarations: tools.map((t) => ({
+        name: t.function.name,
+        description: t.function.description,
+        parameters: t.function.parameters,
+      })),
+    },
+  ];
+}
+
+function toGeminiToolContents(messages: ToolLoopMessage[]) {
+  const systemText = messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n\n");
+  const contents = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => {
+      if (m.role === "assistant" && m.toolCalls?.length) {
+        return {
+          role: "model",
+          parts: m.toolCalls.map((t) => ({ functionCall: { name: t.name, args: safeParseArgs(t.arguments) } })),
+        };
+      }
+      if (m.role === "tool") {
+        return {
+          role: "user",
+          parts: [{ functionResponse: { name: m.name ?? "", response: { content: m.content } } }],
+        };
+      }
+      return { role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] };
+    });
+  return { systemInstruction: systemText ? { parts: [{ text: systemText }] } : undefined, contents };
+}
+
+async function callGoogleTools(
+  messages: ToolLoopMessage[],
+  tools: ToolDef[],
+  apiKey: string,
+  model: string,
+): Promise<ToolTurnResult> {
+  const { systemInstruction, contents } = toGeminiToolContents(messages);
+  const res = await fetch(`${GOOGLE_API_BASE}/${model}:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents, tools: toGeminiTools(tools), ...(systemInstruction ? { systemInstruction } : {}) }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Google tools ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string; functionCall?: { name: string; args: Record<string, unknown> } }> };
+    }>;
+  };
+  const parts = json.candidates?.[0]?.content?.parts ?? [];
+  const content = parts
+    .filter((p) => p.text)
+    .map((p) => p.text ?? "")
+    .join("");
+  const toolCalls: ToolCall[] = parts
+    .filter((p) => p.functionCall)
+    .map((p, i) => ({
+      id: `call_${i}`,
+      name: p.functionCall!.name,
+      arguments: JSON.stringify(p.functionCall!.args ?? {}),
+    }));
+  return { content, toolCalls };
+}
+
+export { callGoogleJson as callGoogleJsonForTest };
+
 // Ollama veut les arguments d'outil en OBJET, et n'utilise pas d'identifiant.
 function toOllamaToolMessages(messages: ToolLoopMessage[]) {
   return messages.map((m) => {

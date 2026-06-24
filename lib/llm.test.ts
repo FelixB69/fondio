@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { callAnthropicJsonForTest as callAnthropicJson } from "./llm";
 import { callOpenAICompatibleJsonForTest as callOpenAICompatibleJson } from "./llm";
+import { callGoogleJsonForTest as callGoogleJson } from "./llm";
 
 const originalFetch = global.fetch;
 
@@ -77,5 +78,31 @@ describe("OpenAI-compatible adapter — callOpenAICompatibleJson", () => {
         { role: "user", content: "x" },
       ]),
     ).rejects.toThrow(/vide/);
+  });
+});
+
+describe("Google Gemini adapter — callGoogleJson", () => {
+  it("moves system messages into systemInstruction and maps assistant->model", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: "Bonjour" }] } }] }),
+    });
+
+    const result = await callGoogleJson(
+      [
+        { role: "system", content: "Tu es un assistant." },
+        { role: "user", content: "Salut" },
+      ],
+      "AIza-test",
+      "gemini-2.0-flash",
+    );
+
+    expect(result).toBe("Bonjour");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("gemini-2.0-flash:generateContent?key=AIza-test");
+    const body = JSON.parse(init.body as string);
+    expect(body.systemInstruction.parts[0].text).toBe("Tu es un assistant.");
+    expect(body.contents).toEqual([{ role: "user", parts: [{ text: "Salut" }] }]);
   });
 });
