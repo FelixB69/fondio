@@ -56,12 +56,29 @@ export function ModelSelector({
 
   const ollamaUp = status?.available ?? false;
   const cloudReady = status?.cloud.configured ?? false;
+  const byok = status?.byok ?? null;
+  const byokActive = Boolean(byok?.configured);
+  const cloudTitle = byokActive ? `${byok!.label} · votre clé` : "Mistral Cloud";
+  const cloudChatModelName = byokActive
+    ? byok!.label!
+    : status
+      ? prettyModelName(status.cloud.chat)
+      : "—";
+  const cloudPrivacyNote = providerPrivacyNote(byokActive ? "byok" : "cloud");
+  const cloudStatusNote = byokActive
+    ? "Votre clé personnelle · secours auto si indisponible"
+    : cloudReady
+      ? "Secours · API Europe"
+      : "Clé API non configurée";
   const isLocal = provider === "local";
   const activeColor = isLocal ? LOCAL_COLOR : CLOUD_COLOR;
 
   // Nom du modèle de conversation actuellement en service.
-  const activeModelId = isLocal ? status?.local.chat : status?.cloud.chat;
-  const activeName = activeModelId ? prettyModelName(activeModelId) : isLocal ? "Local" : "Cloud";
+  const activeName = isLocal
+    ? status?.local.chat
+      ? prettyModelName(status.local.chat)
+      : "Local"
+    : cloudChatModelName;
   // Drapeau : local choisi mais Ollama injoignable → on prévient.
   const localBroken = isLocal && status !== null && !ollamaUp;
 
@@ -169,15 +186,21 @@ export function ModelSelector({
           <ProviderOption
             color={CLOUD_COLOR}
             icon="globe"
-            title="Mistral Cloud"
+            title={cloudTitle}
             active={!isLocal}
-            disabled={!cloudReady}
-            statusNote={cloudReady ? "Secours · API Europe" : "Clé API non configurée"}
-            statusOk={cloudReady}
-            modelName={status ? prettyModelName(status.cloud.chat) : "—"}
-            roles={status ? [["Livrables", prettyModelName(status.cloud.artifact)]] : []}
-            privacyNote={providerPrivacyNote("cloud")}
-            onClick={() => cloudReady && pick("cloud")}
+            disabled={!cloudReady && !byokActive}
+            statusNote={cloudStatusNote}
+            statusOk={cloudReady || byokActive}
+            modelName={cloudChatModelName}
+            roles={
+              byokActive
+                ? []
+                : status
+                  ? [["Livrables", prettyModelName(status.cloud.artifact)]]
+                  : []
+            }
+            privacyNote={cloudPrivacyNote}
+            onClick={() => (cloudReady || byokActive) && pick("cloud")}
           />
         </div>
       )}
