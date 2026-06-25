@@ -7,6 +7,20 @@ import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import { Icon } from "./Icon";
 
+const BYOK_PROVIDERS: { id: "anthropic" | "openai" | "google" | "mistral_byok"; label: string; placeholder: string }[] = [
+  { id: "anthropic", label: "Anthropic (Claude)", placeholder: "sk-ant-..." },
+  { id: "openai", label: "OpenAI (GPT)", placeholder: "sk-..." },
+  { id: "google", label: "Google (Gemini)", placeholder: "AIza..." },
+  { id: "mistral_byok", label: "Mistral", placeholder: "..." },
+];
+
+interface ByokKeyState {
+  configured: boolean;
+  inputValue: string;
+  saving: boolean;
+  msg: { type: "ok" | "err"; text: string } | null;
+}
+
 function Field({
   label,
   type = "text",
@@ -121,6 +135,14 @@ export function AccountScreen({ onBack }: { onBack: () => void }) {
   const [emailMsg, setEmailMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [passwordMsg, setPasswordMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  const [byokKeys, setByokKeys] = useState<Record<string, ByokKeyState>>(() =>
+    Object.fromEntries(
+      BYOK_PROVIDERS.map((p) => [p.id, { configured: false, inputValue: "", saving: false, msg: null }]),
+    ),
+  );
+  const [preferredProvider, setPreferredProvider] = useState<string | null>(null);
+  const [savingPreference, setSavingPreference] = useState(false);
+
   useEffect(() => {
     (async () => {
       const {
@@ -131,8 +153,24 @@ export function AccountScreen({ onBack }: { onBack: () => void }) {
         return;
       }
       setEmail(user.email ?? "");
-      const { data: profile } = await supabase.from("profiles").select("full_name").eq("user_id", user.id).single();
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, preferred_ai_provider")
+        .eq("user_id", user.id)
+        .single();
       setFullName(profile?.full_name ?? "");
+      setPreferredProvider(profile?.preferred_ai_provider ?? null);
+
+      const { data: keyRows } = await supabase.from("user_api_keys").select("provider").eq("user_id", user.id);
+      const configuredSet = new Set((keyRows ?? []).map((r) => r.provider as string));
+      setByokKeys((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(next)) {
+          next[id] = { ...next[id], configured: configuredSet.has(id) };
+        }
+        return next;
+      });
+
       setLoadingProfile(false);
     })();
   }, [supabase]);
@@ -198,6 +236,71 @@ export function AccountScreen({ onBack }: { onBack: () => void }) {
       setSavingPassword(false);
     }
   }, [supabase, newPassword, confirmPassword]);
+
+  const saveByokKey = useCallback(async (providerId: string) => {
+    const value = byokKeys[providerId]?.inputValue.trim();
+    if (!value) return;
+    setByokKeys((prev) => ({ ...prev, [providerId]: { ...prev[providerId], saving: true, msg: null } }));
+    try {
+      const res = await fetch("/api/account/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: providerId, apiKey: value }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        setByokKeys((prev) => ({
+          ...prev,
+          [providerId]: { ...prev[providerId], saving: false, msg: { type: "err", text: json.error ?? "Erreur." } },
+        }));
+        return;
+      }
+      setByokKeys((prev) => ({
+        ...prev,
+        [providerId]: { configured: true, inputValue: "", saving: false, msg: { type: "ok", text: "Clé enregistrée." } },
+      }));
+    } catch {
+      setByokKeys((prev) => ({
+        ...prev,
+        [providerId]: { ...prev[providerId], saving: false, msg: { type: "err", text: "Erreur réseau." } },
+      }));
+    }
+  }, [byokKeys]);
+
+  const deleteByokKey = useCallback(async (providerId: string) => {
+    setByokKeys((prev) => ({ ...prev, [providerId]: { ...prev[providerId], saving: true, msg: null } }));
+    try {
+      await fetch("/api/account/api-keys", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: providerId }),
+      });
+      setByokKeys((prev) => ({
+        ...prev,
+        [providerId]: { configured: false, inputValue: "", saving: false, msg: { type: "ok", text: "Clé supprimée." } },
+      }));
+      setPreferredProvider((prev) => (prev === providerId ? null : prev));
+    } catch {
+      setByokKeys((prev) => ({
+        ...prev,
+        [providerId]: { ...prev[providerId], saving: false, msg: { type: "err", text: "Erreur réseau." } },
+      }));
+    }
+  }, []);
+
+  const updatePreferredProvider = useCallback(async (providerId: string | null) => {
+    setSavingPreference(true);
+    try {
+      const res = await fetch("/api/account/api-keys", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferredProvider: providerId }),
+      });
+      if (res.ok) setPreferredProvider(providerId);
+    } finally {
+      setSavingPreference(false);
+    }
+  }, []);
 
   const Msg = ({ msg }: { msg: { type: "ok" | "err"; text: string } | null }) => {
     if (!msg) return null;
@@ -291,6 +394,73 @@ export function AccountScreen({ onBack }: { onBack: () => void }) {
                   Changer le mot de passe
                 </button>
                 <Msg msg={passwordMsg} />
+              </SectionCard>
+
+              <SectionCard title="Votre IA personnelle">
+                <div style={{ fontSize: 12, color: C.textSub, marginBottom: 16, lineHeight: 1.5 }}>
+                  Connectez votre propre clé API pour utiliser votre fournisseur préféré dans toutes vos
+                  conversations. Facturé directement par le fournisseur, pas par Fondio. En cas de panne ou de
+                  clé invalide, Fondio bascule automatiquement sur le modèle local ou Mistral.
+                </div>
+                {BYOK_PROVIDERS.map((p, i) => {
+                  const state = byokKeys[p.id];
+                  return (
+                    <SubSection key={p.id} last={i === BYOK_PROVIDERS.length - 1}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{p.label}</span>
+                        {state.configured && (
+                          <span style={{ fontSize: 11, color: C.mint, fontWeight: 700 }}>· configurée</span>
+                        )}
+                        <label style={{ display: "flex", alignItems: "center", gap: 5, marginLeft: "auto", fontSize: 11.5, color: C.textSub, cursor: state.configured ? "pointer" : "default" }}>
+                          <input
+                            type="radio"
+                            name="preferredProvider"
+                            disabled={!state.configured || savingPreference}
+                            checked={preferredProvider === p.id}
+                            onChange={() => updatePreferredProvider(p.id)}
+                          />
+                          Utiliser par défaut
+                        </label>
+                      </div>
+                      {state.configured ? (
+                        <button
+                          onClick={() => deleteByokKey(p.id)}
+                          disabled={state.saving}
+                          style={{ ...primaryBtn(state.saving), background: C.bg, color: C.pink, border: `1px solid ${C.border}` }}
+                        >
+                          {state.saving && <LuLoader size={14} style={{ animation: "fndSpin 0.7s linear infinite" }} />}
+                          Supprimer la clé
+                        </button>
+                      ) : (
+                        <>
+                          <Field
+                            label=""
+                            type="password"
+                            value={state.inputValue}
+                            onChange={(v) =>
+                              setByokKeys((prev) => ({ ...prev, [p.id]: { ...prev[p.id], inputValue: v } }))
+                            }
+                            placeholder={p.placeholder}
+                          />
+                          <button onClick={() => saveByokKey(p.id)} disabled={state.saving} style={primaryBtn(state.saving)}>
+                            {state.saving && <LuLoader size={14} style={{ animation: "fndSpin 0.7s linear infinite" }} />}
+                            Valider et enregistrer
+                          </button>
+                        </>
+                      )}
+                      <Msg msg={state.msg} />
+                    </SubSection>
+                  );
+                })}
+                {preferredProvider && (
+                  <button
+                    onClick={() => updatePreferredProvider(null)}
+                    disabled={savingPreference}
+                    style={{ fontSize: 11.5, color: C.textSub, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}
+                  >
+                    Revenir à Local / Mistral Fondio
+                  </button>
+                )}
               </SectionCard>
             </div>
           )}
