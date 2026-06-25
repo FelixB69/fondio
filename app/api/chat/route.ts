@@ -7,6 +7,7 @@ import {
   type ProjectType,
 } from "@/lib/data";
 import { generateArtifacts } from "@/lib/artifacts";
+import { loadUserByokConfig } from "@/lib/byok";
 import { callChatModelStream, describeLLMError, type LLMMessage } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
@@ -38,6 +39,10 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+
+  // BYOK seulement si l'utilisateur n'a pas explicitement choisi "local" pour
+  // cette session — cohérent avec la résolution dans lib/llm.ts.
+  const byok = preferredProvider === "local" ? null : await loadUserByokConfig(supabase, user.id);
 
   const { data: session, error: sessErr } = await supabase
     .from("sessions")
@@ -115,7 +120,7 @@ export async function POST(req: Request) {
   // La logique (tool-calling puis fallback) vit dans lib/web-search.ts, partagée
   // avec le panel.
   if (webSearch) {
-    const research = await gatherWebContext(updatedHistory, preferredProvider);
+    const research = await gatherWebContext(updatedHistory, preferredProvider, byok);
     webContext = research.webContext;
     webSources = research.sources;
   }
@@ -151,7 +156,7 @@ export async function POST(req: Request) {
 
   let streamResult: Awaited<ReturnType<typeof callChatModelStream>>;
   try {
-    streamResult = await callChatModelStream(llmMessages, { forceProvider: preferredProvider });
+    streamResult = await callChatModelStream(llmMessages, { forceProvider: preferredProvider, byok });
   } catch (e: unknown) {
     return NextResponse.json({ error: describeLLMError(e) }, { status: 503 });
   }
@@ -217,6 +222,7 @@ export async function POST(req: Request) {
           assistantReply: parsed.content,
           deliverableTitles: parsed.deliverables,
           forceProvider: preferredProvider,
+          byok,
         });
         if (artifacts.length) {
           assistantMsg.artifacts = artifacts;
