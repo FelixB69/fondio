@@ -7,7 +7,7 @@ import {
   type ProjectType,
 } from "@/lib/data";
 import { generateArtifacts } from "@/lib/artifacts";
-import { loadUserByokConfig } from "@/lib/byok";
+import { loadUserByokConfig, type SupabaseLike } from "@/lib/byok";
 import { callChatModelStream, describeLLMError, type LLMMessage } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
@@ -42,7 +42,13 @@ export async function POST(req: Request) {
 
   // BYOK seulement si l'utilisateur n'a pas explicitement choisi "local" pour
   // cette session — cohérent avec la résolution dans lib/llm.ts.
-  const byok = preferredProvider === "local" ? null : await loadUserByokConfig(supabase, user.id);
+  // (Cast nécessaire : le client Supabase réel a un type de retour bien plus
+  // riche/profond que `SupabaseLike`, le sous-ensemble minimal utilisé pour
+  // mocker facilement loadUserByokConfig dans les tests.)
+  const byok =
+    preferredProvider === "local"
+      ? null
+      : await loadUserByokConfig(supabase as unknown as SupabaseLike, user.id);
 
   const { data: session, error: sessErr } = await supabase
     .from("sessions")
