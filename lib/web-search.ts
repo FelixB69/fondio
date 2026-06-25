@@ -9,6 +9,7 @@
 import {
   callChatModel,
   callModelWithTools,
+  type BYOKConfig,
   type ToolDef,
   type ToolLoopMessage,
 } from "./llm";
@@ -170,10 +171,11 @@ const WEB_SEARCH_TOOL: ToolDef = {
 export async function gatherWebContext(
   conversation: ChatMessage[],
   preferredProvider?: "local" | "cloud",
+  byok?: BYOKConfig | null,
 ): Promise<WebContext> {
   // Étape 1 : tool-calling natif.
   try {
-    const research = await runWebResearch(conversation, preferredProvider);
+    const research = await runWebResearch(conversation, preferredProvider, byok);
     if (research.sources.length > 0) return research;
   } catch (e) {
     console.error("Tool-calling indisponible :", e);
@@ -181,7 +183,7 @@ export async function gatherWebContext(
 
   // Étape 2 : fallback (le modèle formule une requête, on cherche une fois).
   try {
-    const query = await decideSearchQuery(conversation, preferredProvider);
+    const query = await decideSearchQuery(conversation, preferredProvider, byok);
     if (query) {
       const search = await searchWeb(query);
       return {
@@ -200,6 +202,7 @@ export async function gatherWebContext(
 async function runWebResearch(
   conversation: ChatMessage[],
   preferredProvider?: "local" | "cloud",
+  byok?: BYOKConfig | null,
 ): Promise<WebContext> {
   const recent = conversation.slice(-6);
   const messages: ToolLoopMessage[] = [
@@ -218,6 +221,7 @@ async function runWebResearch(
   for (let step = 0; step < MAX_STEPS; step++) {
     const { data: turn, providerLabel } = await callModelWithTools(messages, [WEB_SEARCH_TOOL], {
       forceProvider: preferredProvider,
+      byok,
     });
     if (step === 0 && process.env.NODE_ENV !== "production")
       console.log(`[recherche] tool-calling via ${providerLabel}`);
@@ -262,6 +266,7 @@ async function runWebResearch(
 async function decideSearchQuery(
   conversation: ChatMessage[],
   forceProvider?: "local" | "cloud",
+  byok?: BYOKConfig | null,
 ): Promise<string | null> {
   const recent = conversation.slice(-6);
   const transcript = recent
@@ -282,7 +287,7 @@ Si needSearch vaut false, mets "query": "".`;
         { role: "system", content: system },
         { role: "user", content: `Conversation :\n${transcript}\n\nDécide maintenant.` },
       ],
-      { jsonMode: true, forceProvider },
+      { jsonMode: true, forceProvider, byok },
     );
     const parsed = JSON.parse(raw) as { needSearch?: boolean; query?: string };
     if (parsed.needSearch && typeof parsed.query === "string" && parsed.query.trim()) {

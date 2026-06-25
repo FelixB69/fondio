@@ -2,15 +2,16 @@
 // livrables annoncés par un agent. Source de vérité unique, partagée par les
 // routes /api/chat et /api/panel-chat (avant : code dupliqué à l'identique).
 import { ARTIFACTS_FORMAT_PROMPT, type Artifact, type ChatMessage } from "./data";
-import { callChatModel } from "./llm";
+import { callChatModel, type BYOKConfig } from "./llm";
 
 export async function generateArtifacts(args: {
   conversation: ChatMessage[];
   assistantReply: string;
   deliverableTitles: string[];
   forceProvider?: "local" | "cloud";
+  byok?: BYOKConfig | null;
 }): Promise<Artifact[]> {
-  const { conversation, assistantReply, deliverableTitles, forceProvider } = args;
+  const { conversation, assistantReply, deliverableTitles, forceProvider, byok } = args;
 
   // On ne renvoie que les ~6 derniers tours pour limiter le contexte.
   const recent = conversation.slice(-6);
@@ -37,7 +38,7 @@ Produis le contenu complet de chaque livrable au format JSON décrit.`;
         { role: "system", content: ARTIFACTS_FORMAT_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      { jsonMode: true, useArtifactModel: true, forceProvider },
+      { jsonMode: true, useArtifactModel: true, forceProvider, byok },
     );
     const parsed = JSON.parse(raw) as { artifacts?: unknown };
     if (!Array.isArray(parsed.artifacts)) return [];
