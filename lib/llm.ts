@@ -668,6 +668,12 @@ const BYOK_MODELS: Record<BYOKProviderId, { chat: string; artifact: string; labe
   mistral_byok: { chat: "mistral-small-latest", artifact: "codestral-latest", label: "Mistral Small" },
 };
 
+// Lecture seule pour /api/ollama-status — pas besoin d'exposer l'objet complet
+// (qui contient aussi le modèle "artifact", non pertinent pour l'UI de statut).
+export const BYOK_CHAT_MODELS: Record<BYOKProviderId, string> = Object.fromEntries(
+  Object.entries(BYOK_MODELS).map(([k, v]) => [k, v.chat]),
+) as Record<BYOKProviderId, string>;
+
 export function byokDisplayLabel(provider: BYOKProviderId): string {
   return BYOK_MODELS[provider].label;
 }
