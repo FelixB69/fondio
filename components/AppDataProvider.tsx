@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { AgentId, ChatMessage, ProjectType, Task } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
+import { pendingNotifications, TaskDismissal, TaskNotification } from "@/lib/tasks";
+import { DISMISSALS_KEY, fetchDismissals, insertDismissal } from "@/lib/use-notifications";
 import { fetchAllTasks, TASKS_KEY } from "@/lib/use-tasks";
 import { SessionListItem } from "./Sidebar";
 
@@ -37,6 +39,8 @@ interface AppDataContextValue {
   projects: ProjectLite[];
   projectsById: Record<string, ProjectLite>;
   taskOpenCount: number;
+  notifications: TaskNotification[];
+  dismissNotification: (taskId: string, dueDate: string) => Promise<void>;
   userEmail: string | undefined;
   loadSessions: () => Promise<void>;
   loadArchivedSessions: () => Promise<void>;
@@ -82,6 +86,34 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const taskOpenCount = useMemo(
     () => (allTasks ?? []).filter((t) => t.status !== "done").length,
     [allTasks],
+  );
+
+  // Dismissals des notifications d'échéance — même pattern que allTasks
+  // ci-dessus : cache SWR partagé, recalcul dérivé via useMemo.
+  const { data: dismissals, mutate: mutateDismissals } = useSWR<TaskDismissal[]>(
+    DISMISSALS_KEY,
+    fetchDismissals,
+  );
+
+  const notifications = useMemo<TaskNotification[]>(
+    () => pendingNotifications(allTasks ?? [], dismissals ?? []),
+    [allTasks, dismissals],
+  );
+
+  // Marque une notification comme lue : insert optimiste dans le cache local,
+  // persistance Supabase en arrière-plan, rollback si la requête échoue.
+  const dismissNotification = useCallback(
+    (taskId: string, dueDate: string) => {
+      const apply = (cur: TaskDismissal[] = []) => [...cur, { task_id: taskId, due_date: dueDate }];
+      return mutateDismissals(
+        async (cur = []) => {
+          await insertDismissal(taskId, dueDate);
+          return apply(cur);
+        },
+        { optimisticData: apply, rollbackOnError: true, revalidate: false },
+      ).then(() => undefined);
+    },
+    [mutateDismissals],
   );
 
   // Index id → projet, recalculé seulement quand la liste change.
@@ -264,6 +296,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         projects,
         projectsById,
         taskOpenCount,
+        notifications,
+        dismissNotification,
         userEmail,
         loadSessions,
         loadArchivedSessions,
