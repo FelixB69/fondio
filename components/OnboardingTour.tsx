@@ -9,7 +9,7 @@ const STEPS: { icon: IconName; title: string; desc: string }[] = [
   {
     icon: "target",
     title: "1. Choisissez un projet",
-    desc: "Créez un projet perso ou pro, ou continuez sans projet pour une session ponctuelle.",
+    desc: "Créez un projet perso ou pro : c'est le cœur de votre espace de travail, où se rassemblent sessions, tâches, agenda et livrables. Ou continuez sans projet pour une session ponctuelle.",
   },
   {
     icon: "sparkles",
@@ -24,7 +24,7 @@ const STEPS: { icon: IconName; title: string; desc: string }[] = [
   {
     icon: "tasks",
     title: "4. Suivez vos tâches et votre agenda",
-    desc: "Les actions identifiées pendant vos sessions se retrouvent dans Tâches et Agenda, pour ne rien perdre de vue.",
+    desc: "Tout est réuni au même endroit : les actions issues de vos sessions deviennent des tâches, vos échéances se posent dans l'Agenda, et vos livrables restent à portée. Fondio n'est pas qu'un chat — c'est votre espace de travail.",
   },
 ];
 
