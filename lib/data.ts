@@ -107,6 +107,13 @@ info manque, écris "[à préciser]" plutôt qu'une valeur générique plausible
 export type TaskStatus = "todo" | "doing" | "done";
 export type TaskPriority = "low" | "normal" | "high";
 
+export interface TaskComment {
+  id: string;
+  content: string;
+  created_at: string;
+  updated_at: string | null;
+}
+
 export interface Task {
   id: string;
   session_id: string | null;
@@ -121,6 +128,7 @@ export interface Task {
   source_agent_id: AgentId | null;
   created_at: string;
   completed_at: string | null;
+  comments: TaskComment[];
 }
 
 // ---------------------------------------------------------------------
