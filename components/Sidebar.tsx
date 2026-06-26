@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AGENTS, AgentId, ProjectType, PROJECT_TYPES } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { formatRelative } from "@/lib/format";
+import type { TaskNotification } from "@/lib/tasks";
 import { useIsMobile } from "@/lib/use-responsive";
 import type { ProjectLite } from "./AppDataProvider";
 import { Icon, IconName } from "./Icon";
@@ -28,6 +29,9 @@ interface SidebarProps {
   activeSessionId: string | null;
   currentView: SidebarView;
   taskOpenCount?: number;
+  notifications?: TaskNotification[];
+  onDismissNotification?: (taskId: string, dueDate: string) => void;
+  onOpenNotificationTask?: (taskId: string) => void;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
   onOpenAccount: () => void;
@@ -349,6 +353,151 @@ const SessionRow = memo(function SessionRow({
   );
 });
 
+function NotificationBell({
+  notifications,
+  onDismiss,
+  onOpenTask,
+}: {
+  notifications: TaskNotification[];
+  onDismiss: (taskId: string, dueDate: string) => void;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const count = notifications.length;
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          padding: "7px 10px",
+          borderRadius: 7,
+          border: "none",
+          cursor: "pointer",
+          background: open ? C.navyLight : "transparent",
+          color: open ? C.navy : C.textSub,
+          fontWeight: 600,
+          fontSize: 13,
+          fontFamily: "inherit",
+        }}
+      >
+        <Icon name="bell" size={14} color={open ? C.navy : C.textSub} />
+        <span style={{ flex: 1, textAlign: "left" }}>Notifications</span>
+        {count > 0 && (
+          <span
+            style={{
+              background: open ? C.navy : C.border,
+              color: open ? "white" : C.textSub,
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "1px 7px",
+              borderRadius: 100,
+              minWidth: 18,
+              textAlign: "center",
+            }}
+          >
+            {count}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 8,
+            right: 8,
+            background: C.white,
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+            zIndex: 20,
+            maxHeight: 320,
+            overflowY: "auto",
+          }}
+        >
+          {count === 0 ? (
+            <div style={{ padding: "14px 12px", fontSize: 12.5, color: C.textMute, textAlign: "center" }}>
+              Rien à signaler.
+            </div>
+          ) : (
+            notifications.map(({ task, urgency }) => {
+              const color = urgency === "overdue" ? "#DC2626" : "#D97706";
+              const label = urgency === "overdue" ? "Retard" : urgency === "today" ? "Aujourd'hui" : "Demain";
+              return (
+                <div
+                  key={task.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    padding: "9px 10px",
+                    borderBottom: `1px solid ${C.border}`,
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      setOpen(false);
+                      onOpenTask(task.id);
+                    }}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      textAlign: "left",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      padding: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: C.text,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                      }}
+                    >
+                      {task.content}
+                    </div>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color, marginTop: 2 }}>{label}</div>
+                  </button>
+                  <button
+                    onClick={() => onDismiss(task.id, task.due_date as string)}
+                    title="Marquer lu"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 4,
+                      borderRadius: 5,
+                      color: C.textMute,
+                      display: "flex",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Icon name="check" size={12} color={C.textMute} />
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Sidebar({
   sessions,
   archivedSessions,
@@ -356,6 +505,9 @@ export function Sidebar({
   activeSessionId,
   currentView,
   taskOpenCount,
+  notifications = [],
+  onDismissNotification,
+  onOpenNotificationTask,
   onSelectSession,
   onNewSession,
   onOpenAccount,
@@ -440,6 +592,15 @@ export function Sidebar({
           <Icon name="plus" size={13} color="white" />
           Nouvelle session
         </button>
+      </div>
+
+      {/* Notifications */}
+      <div style={{ padding: "0 8px 4px" }}>
+        <NotificationBell
+          notifications={notifications}
+          onDismiss={(taskId, dueDate) => onDismissNotification?.(taskId, dueDate)}
+          onOpenTask={(taskId) => onOpenNotificationTask?.(taskId)}
+        />
       </div>
 
       {/* Nav */}
