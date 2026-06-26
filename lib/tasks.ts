@@ -1,6 +1,6 @@
 // Logique métier partagée des tâches (sans JSX). Source de vérité unique pour
 // les écrans Tâches, Projet et Agenda : tri, filtres, échéances, regroupements.
-import { Task, TaskPriority, TaskStatus } from "./data";
+import { Task, TaskComment, TaskPriority, TaskStatus } from "./data";
 import { C } from "./design-tokens";
 import type { IconName } from "@/components/Icon";
 
@@ -98,6 +98,14 @@ export function taskBounds(task: Task): { start: string; end: string } | null {
   if (b) return { start: b, end: b };
   if (a) return { start: a, end: a };
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Commentaires : tri plus-récent-en-premier, sans muter le tableau d'origine.
+// ---------------------------------------------------------------------------
+
+export function sortedComments(task: Task): TaskComment[] {
+  return [...task.comments].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 }
 
 // ---------------------------------------------------------------------------

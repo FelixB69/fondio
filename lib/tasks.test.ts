@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Task } from "./data";
+import { Task, TaskComment } from "./data";
 import {
   addDaysYmd,
   agendaBucket,
@@ -10,6 +10,7 @@ import {
   inDaysStr,
   matchesAgenda,
   matchesFilter,
+  sortedComments,
   startOfWeekYmd,
   taskBounds,
   todayStr,
@@ -31,6 +32,7 @@ function makeTask(over: Partial<Task> = {}): Task {
     source_agent_id: null,
     created_at: "2026-01-01T00:00:00.000Z",
     completed_at: null,
+    comments: [],
     ...over,
   };
 }
@@ -51,6 +53,24 @@ describe("helpers de date", () => {
     expect(startOfWeekYmd("2026-06-24")).toBe("2026-06-22");
     // Un lundi reste lui-même.
     expect(startOfWeekYmd("2026-06-22")).toBe("2026-06-22");
+  });
+});
+
+describe("sortedComments", () => {
+  it("trie les commentaires du plus récent au plus ancien sans muter l'original", () => {
+    const comments: TaskComment[] = [
+      { id: "a", content: "premier", created_at: "2026-01-01T00:00:00.000Z", updated_at: null },
+      { id: "b", content: "troisième", created_at: "2026-01-03T00:00:00.000Z", updated_at: null },
+      { id: "c", content: "deuxième", created_at: "2026-01-02T00:00:00.000Z", updated_at: null },
+    ];
+    const task = makeTask({ comments });
+    const sorted = sortedComments(task);
+    expect(sorted.map((c) => c.id)).toEqual(["b", "c", "a"]);
+    expect(task.comments.map((c) => c.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("renvoie un tableau vide si la tâche n'a aucun commentaire", () => {
+    expect(sortedComments(makeTask())).toEqual([]);
   });
 });
 
