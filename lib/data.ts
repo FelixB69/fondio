@@ -144,7 +144,7 @@ Règles absolues (anti-fabrication) :
 - Si tu fais une hypothèse, marque-la clairement : "Hypothèse :" et demande confirmation.
 `.trim();
 
-const FORMAT_INSTRUCTIONS = `
+export const FORMAT_INSTRUCTIONS = `
 Format de réponse OBLIGATOIRE :
 1. Commence par ta réponse principale en texte clair (2 à 5 paragraphes max).
 2. Si tu produis quelque chose de concret (frameworks, listes, plans, hypothèses), termine par :
@@ -160,6 +160,15 @@ Maximum 3 livrables par tour, formulés en 5 à 10 mots chacun.
 5. Pas de JSON, pas de markdown lourd, pas d'emojis dans la réponse.
 6. Le titre de section doit être EXACTEMENT \`LIVRABLES:\` sur sa propre ligne. Pas de **, pas de #, pas de ###, pas d'espace avant le \`:\`. Idem pour \`CHALLENGES:\`. Sinon le système ne les détecte pas.
 7. IMPÉRATIF : Vouvoie TOUJOURS l'utilisateur dans ta réponse (vous, votre, vos — JAMAIS tu, ton, tes).
+8. ANCRAGE OBLIGATOIRE : chaque livrable doit reprendre un fait précis donné par
+l'utilisateur dans la conversation (un chiffre, un nom, un lieu, une date, une
+contrainte) — jamais une catégorie générique seule.
+Mauvais (générique) : "Plan d'action en 3 étapes"
+Bon (ancré) : "Plan de prospection pour les 12 cafés du 11e arrondissement"
+9. Formulations interdites SEULES, sans précision rattachée : "plan d'action",
+"définir vos objectifs", "structurer votre approche", "prochaines étapes".
+Si tu les emploies, complète-les toujours avec un détail concret tiré de
+la conversation.
 `.trim();
 
 const CHALLENGER_INSTRUCTIONS = `
