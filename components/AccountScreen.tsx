@@ -396,72 +396,83 @@ export function AccountScreen({ onBack }: { onBack: () => void }) {
                 <Msg msg={passwordMsg} />
               </SectionCard>
 
-              <SectionCard title="Votre IA personnelle">
-                <div style={{ fontSize: 12, color: C.textSub, marginBottom: 16, lineHeight: 1.5 }}>
-                  Connectez votre propre clé API pour utiliser votre fournisseur préféré dans toutes vos
-                  conversations. Facturé directement par le fournisseur, pas par Fondio. En cas de panne ou de
-                  clé invalide, Fondio bascule automatiquement sur le modèle local ou Mistral.
-                </div>
-                {BYOK_PROVIDERS.map((p, i) => {
-                  const state = byokKeys[p.id];
-                  return (
-                    <SubSection key={p.id} last={i === BYOK_PROVIDERS.length - 1}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{p.label}</span>
-                        {state.configured && (
-                          <span style={{ fontSize: 11, color: C.mint, fontWeight: 700 }}>· configurée</span>
-                        )}
-                        <label style={{ display: "flex", alignItems: "center", gap: 5, marginLeft: "auto", fontSize: 11.5, color: C.textSub, cursor: state.configured ? "pointer" : "default" }}>
-                          <input
-                            type="radio"
-                            name="preferredProvider"
-                            disabled={!state.configured || savingPreference}
-                            checked={preferredProvider === p.id}
-                            onChange={() => updatePreferredProvider(p.id)}
-                          />
-                          Utiliser par défaut
-                        </label>
-                      </div>
-                      {state.configured ? (
-                        <button
-                          onClick={() => deleteByokKey(p.id)}
-                          disabled={state.saving}
-                          style={{ ...primaryBtn(state.saving), background: C.bg, color: C.pink, border: `1px solid ${C.border}` }}
-                        >
-                          {state.saving && <LuLoader size={14} style={{ animation: "fndSpin 0.7s linear infinite" }} />}
-                          Supprimer la clé
-                        </button>
-                      ) : (
-                        <>
-                          <Field
-                            label=""
-                            type="password"
-                            value={state.inputValue}
-                            onChange={(v) =>
-                              setByokKeys((prev) => ({ ...prev, [p.id]: { ...prev[p.id], inputValue: v } }))
-                            }
-                            placeholder={p.placeholder}
-                          />
-                          <button onClick={() => saveByokKey(p.id)} disabled={state.saving} style={primaryBtn(state.saving)}>
-                            {state.saving && <LuLoader size={14} style={{ animation: "fndSpin 0.7s linear infinite" }} />}
-                            Valider et enregistrer
-                          </button>
-                        </>
-                      )}
-                      <Msg msg={state.msg} />
-                    </SubSection>
-                  );
-                })}
-                {preferredProvider && (
-                  <button
-                    onClick={() => updatePreferredProvider(null)}
-                    disabled={savingPreference}
-                    style={{ fontSize: 11.5, color: C.textSub, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}
+              <div style={{ gridColumn: isMobile ? undefined : "1 / -1" }}>
+                <SectionCard title="Votre IA personnelle">
+                  <div style={{ fontSize: 12, color: C.textSub, marginBottom: 16, lineHeight: 1.5 }}>
+                    Connectez votre propre clé API pour utiliser votre fournisseur préféré dans toutes vos
+                    conversations. Facturé directement par le fournisseur, pas par Fondio. En cas de panne ou de
+                    clé invalide, Fondio bascule automatiquement sur le modèle local ou Mistral.
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+                      gap: "0 24px",
+                    }}
                   >
-                    Revenir à Local / Mistral Fondio
-                  </button>
-                )}
-              </SectionCard>
+                    {BYOK_PROVIDERS.map((p, i) => {
+                      const state = byokKeys[p.id];
+                      const isLastRow = i >= BYOK_PROVIDERS.length - 2;
+                      return (
+                        <SubSection key={p.id} last={isMobile ? i === BYOK_PROVIDERS.length - 1 : isLastRow}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{p.label}</span>
+                            {state.configured && (
+                              <span style={{ fontSize: 11, color: C.mint, fontWeight: 700 }}>· configurée</span>
+                            )}
+                            <label style={{ display: "flex", alignItems: "center", gap: 5, marginLeft: "auto", fontSize: 11.5, color: C.textSub, cursor: state.configured ? "pointer" : "default" }}>
+                              <input
+                                type="radio"
+                                name="preferredProvider"
+                                disabled={!state.configured || savingPreference}
+                                checked={preferredProvider === p.id}
+                                onChange={() => updatePreferredProvider(p.id)}
+                              />
+                              Utiliser par défaut
+                            </label>
+                          </div>
+                          {state.configured ? (
+                            <button
+                              onClick={() => deleteByokKey(p.id)}
+                              disabled={state.saving}
+                              style={{ ...primaryBtn(state.saving), background: C.bg, color: C.pink, border: `1px solid ${C.border}` }}
+                            >
+                              {state.saving && <LuLoader size={14} style={{ animation: "fndSpin 0.7s linear infinite" }} />}
+                              Supprimer la clé
+                            </button>
+                          ) : (
+                            <>
+                              <Field
+                                label=""
+                                type="password"
+                                value={state.inputValue}
+                                onChange={(v) =>
+                                  setByokKeys((prev) => ({ ...prev, [p.id]: { ...prev[p.id], inputValue: v } }))
+                                }
+                                placeholder={p.placeholder}
+                              />
+                              <button onClick={() => saveByokKey(p.id)} disabled={state.saving} style={primaryBtn(state.saving)}>
+                                {state.saving && <LuLoader size={14} style={{ animation: "fndSpin 0.7s linear infinite" }} />}
+                                Valider et enregistrer
+                              </button>
+                            </>
+                          )}
+                          <Msg msg={state.msg} />
+                        </SubSection>
+                      );
+                    })}
+                  </div>
+                  {preferredProvider && (
+                    <button
+                      onClick={() => updatePreferredProvider(null)}
+                      disabled={savingPreference}
+                      style={{ fontSize: 11.5, color: C.textSub, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}
+                    >
+                      Revenir à Local / Mistral Fondio
+                    </button>
+                  )}
+                </SectionCard>
+              </div>
             </div>
           )}
         </div>

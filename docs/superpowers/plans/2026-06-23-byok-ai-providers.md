@@ -1325,7 +1325,7 @@ export function providerPrivacyNote(provider: ModelProvider): string {
     return "Appel direct à l'API du fournisseur avec votre clé personnelle — facturé par lui, pas par Fondio.";
   }
   return provider === "local"
-    ? "Tourne sur votre machine via Ollama. Vos données ne quittent pas votre ordinateur."
+    ? "Tourne sur notre serveur via Ollama. Vos données ne quittent pas nos machines."
     : "Appel à l'API Mistral (serveurs en Europe). Utilisé en secours quand le modèle local est indisponible.";
 }
 ```

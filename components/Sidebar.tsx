@@ -412,7 +412,9 @@ export function Sidebar({
     >
       {/* Logo */}
       <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-        <img src="/fondio.gif" alt="Fondio" style={{ height: 60, width: "auto", display: "block", flex: 1 }} />
+        <Link href="/home" title="Retour à l'accueil" style={{ display: "block", flex: 1 }}>
+          <img src="/fondio.gif" alt="Fondio" style={{ height: 60, width: "auto", display: "block" }} />
+        </Link>
         {isMobile && (
           <button
             onClick={onMobileClose}

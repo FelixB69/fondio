@@ -20,7 +20,25 @@
       "Bash(git commit -m 'feat: add Vitest tests and bundle optimization *)",
       "Bash(git commit -m 'refactor: extract shared helpers and optimize images *)",
       "Bash(git commit -m 'feat: centralize task data with SWR cache layer *)",
-      "Bash(git commit -m 'perf: optimize React rendering and remove dead code *)"
+      "Bash(git commit -m 'perf: optimize React rendering and remove dead code *)",
+      "Bash(claude --version)",
+      "Bash(claude plugin *)",
+      "WebSearch",
+      "Bash(mkdir -p docs/superpowers/specs && ls supabase/ 2>/dev/null)",
+      "Bash(git commit *)",
+      "Bash(cat \"$\\(git rev-parse --show-toplevel\\)/.superpowers/sdd/progress.md\" 2>/dev/null || echo \"NO_LEDGER\"; echo \"---branch---\"; git branch --show-current; echo \"---status---\"; git status --short; echo \"---scripts---\"; ls /Users/felixberger/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/ 2>/dev/null)",
+      "Read(//Users/felixberger/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/**)",
+      "Bash(/Users/felixberger/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief docs/superpowers/plans/2026-06-23-byok-ai-providers.md 1)",
+      "Bash(cat /Users/felixberger/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/implementer-prompt.md)",
+      "Read(//Users/felixberger/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/**)",
+      "Bash(/Users/felixberger/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package 412db70 ea0c6df)",
+      "Bash(npx vitest *)",
+      "Bash(API_KEY_ENCRYPTION_SECRET=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd\" npx vitest run lib/crypto.test.ts)",
+      "Bash(node -e \"process.env.API_KEY_ENCRYPTION_SECRET='0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd'; const { encryptSecret } = require\\('./lib/crypto.ts'\\); console.log\\('Test:', encryptSecret\\('test'\\)\\);\")",
+      "Bash(API_KEY_ENCRYPTION_SECRET='0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd' node --loader tsx ./lib/crypto.test.ts)"
+    ],
+    "additionalDirectories": [
+      "/Users/felixberger/Documents/Projects/fondio/docs/superpowers"
     ]
   }
 }
