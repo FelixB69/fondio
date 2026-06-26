@@ -9,11 +9,11 @@
 import { useCallback, useMemo } from "react";
 import useSWR from "swr";
 import { addDaysYmd, NEXT_STATUS } from "./tasks";
-import { Task, TaskPriority, TaskStatus } from "./data";
+import { Task, TaskComment, TaskPriority, TaskStatus } from "./data";
 import { createClient } from "./supabase/client";
 
 const TASK_COLS =
-  "id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at";
+  "id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at, comments";
 
 // Clé SWR globale : tous les consommateurs partagent le même cache.
 export const TASKS_KEY = "tasks";
@@ -54,6 +54,9 @@ export interface UseTasksResult {
   setContent: (task: Task, content: string) => Promise<void>;
   // Décale start ET due (celles présentes) du même nombre de jours (drag timeline).
   shiftDates: (task: Task, deltaDays: number) => Promise<void>;
+  addComment: (task: Task, content: string) => Promise<void>;
+  editComment: (task: Task, commentId: string, content: string) => Promise<void>;
+  deleteComment: (task: Task, commentId: string) => Promise<void>;
 }
 
 /**
@@ -193,6 +196,48 @@ export function useTasks(scope?: { projectId?: string | null }): UseTasksResult 
     [patchTask, supabase],
   );
 
+  const addComment = useCallback(
+    (task: Task, content: string) => {
+      const text = content.trim();
+      if (!text) return Promise.resolve();
+      const comment: TaskComment = {
+        id: crypto.randomUUID(),
+        content: text,
+        created_at: new Date().toISOString(),
+        updated_at: null,
+      };
+      const comments = [...task.comments, comment];
+      return patchTask(task.id, { comments }, () =>
+        supabase.from("tasks").update({ comments }).eq("id", task.id),
+      );
+    },
+    [patchTask, supabase],
+  );
+
+  const editComment = useCallback(
+    (task: Task, commentId: string, content: string) => {
+      const text = content.trim();
+      if (!text) return Promise.resolve();
+      const comments = task.comments.map((c) =>
+        c.id === commentId ? { ...c, content: text, updated_at: new Date().toISOString() } : c,
+      );
+      return patchTask(task.id, { comments }, () =>
+        supabase.from("tasks").update({ comments }).eq("id", task.id),
+      );
+    },
+    [patchTask, supabase],
+  );
+
+  const deleteComment = useCallback(
+    (task: Task, commentId: string) => {
+      const comments = task.comments.filter((c) => c.id !== commentId);
+      return patchTask(task.id, { comments }, () =>
+        supabase.from("tasks").update({ comments }).eq("id", task.id),
+      );
+    },
+    [patchTask, supabase],
+  );
+
   return {
     tasks,
     loading: isLoading,
@@ -206,5 +251,8 @@ export function useTasks(scope?: { projectId?: string | null }): UseTasksResult 
     setStartDate,
     setContent,
     shiftDates,
+    addComment,
+    editComment,
+    deleteComment,
   };
 }
