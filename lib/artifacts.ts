@@ -4,6 +4,24 @@
 import { ARTIFACTS_FORMAT_PROMPT, type Artifact, type ChatMessage } from "./data";
 import { callChatModel, type BYOKConfig } from "./llm";
 
+const ARTIFACT_CONTEXT_CHAR_BUDGET = 8000;
+
+// Sélectionne, en partant de la fin, les messages les plus récents dont la
+// somme des longueurs ne dépasse pas le budget — remplace une troncature
+// fixe à N messages qui perdait les détails donnés tôt dans une longue
+// conversation. Garde toujours au moins le dernier message.
+export function selectRecentContext(conversation: ChatMessage[]): ChatMessage[] {
+  const selected: ChatMessage[] = [];
+  let total = 0;
+  for (let i = conversation.length - 1; i >= 0; i--) {
+    const len = conversation[i].content.length;
+    if (total + len > ARTIFACT_CONTEXT_CHAR_BUDGET && selected.length > 0) break;
+    selected.unshift(conversation[i]);
+    total += len;
+  }
+  return selected;
+}
+
 export async function generateArtifacts(args: {
   conversation: ChatMessage[];
   assistantReply: string;
@@ -13,8 +31,10 @@ export async function generateArtifacts(args: {
 }): Promise<Artifact[]> {
   const { conversation, assistantReply, deliverableTitles, forceProvider, byok } = args;
 
-  // On ne renvoie que les ~6 derniers tours pour limiter le contexte.
-  const recent = conversation.slice(-6);
+  // On limite le contexte par budget de caractères (pas par nombre fixe de
+  // messages) pour ne pas perdre les détails donnés tôt dans une longue
+  // conversation.
+  const recent = selectRecentContext(conversation);
   const transcript = recent
     .map((m) => `${m.role === "user" ? "Utilisateur" : "Assistant"} : ${m.content}`)
     .join("\n\n");
