@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AGENTS, AgentId, Task, TaskPriority } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { createClient } from "@/lib/supabase/client";
@@ -34,6 +35,16 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
   // Tâche ouverte dans la popup d'édition. On garde l'id (pas l'objet) pour que
   // la popup reflète les mises à jour optimistes en relisant depuis `tasks`.
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+
+  // Notification cliquée depuis la sidebar : /agenda?task=<id> ouvre direct
+  // la popup d'édition de cette tâche.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const taskParam = searchParams.get("task");
+
+  useEffect(() => {
+    if (taskParam) setEditingTaskId(taskParam);
+  }, [taskParam]);
 
   // Tâches via le cache SWR partagé (mêmes données que les écrans Tâches/Projet) :
   // un seul fetch réseau, et toute mutation s'y répercute instantanément.
@@ -254,7 +265,10 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
           key={editingTask.id}
           task={editingTask}
           project={editingTask.project_id ? projects[editingTask.project_id] : undefined}
-          onClose={() => setEditingTaskId(null)}
+          onClose={() => {
+            setEditingTaskId(null);
+            if (taskParam) router.replace("/agenda");
+          }}
           onSetStatus={(s) => setStatus(editingTask, s)}
           onSetPriority={(p) => setPriority(editingTask, p)}
           onSetStart={(d) => setStartDate(editingTask, d)}

@@ -31,6 +31,8 @@ function AppShell({ children }: { children: ReactNode }) {
     archivedSessions,
     projectsById,
     taskOpenCount,
+    notifications,
+    dismissNotification,
     userEmail,
     archiveSession,
     restoreSession,
@@ -76,6 +78,12 @@ function AppShell({ children }: { children: ReactNode }) {
         activeSessionId={activeSessionId}
         currentView={currentView}
         taskOpenCount={taskOpenCount}
+        notifications={notifications}
+        onDismissNotification={dismissNotification}
+        onOpenNotificationTask={(taskId) => {
+          router.push(`/agenda?task=${taskId}`);
+          setSidebarOpen(false);
+        }}
         onSelectSession={(id) => {
           router.push(`/chat/${id}`);
           setSidebarOpen(false);
