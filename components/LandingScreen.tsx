@@ -30,6 +30,29 @@ const FEATURES: { icon: IconName; title: string; desc: string }[] = [
   },
 ];
 
+const WORKSPACE_PILLARS: { icon: IconName; title: string; desc: string }[] = [
+  {
+    icon: "target",
+    title: "Projets & paliers",
+    desc: "Rattachez vos sessions à un projet et suivez sa progression par étapes, du brief au lancement.",
+  },
+  {
+    icon: "tasks",
+    title: "Tâches",
+    desc: "Les actions issues de vos échanges deviennent des tâches concrètes que vous cochez au fil de l'eau.",
+  },
+  {
+    icon: "clock",
+    title: "Agenda",
+    desc: "Planifiez les échéances de vos projets et gardez une vue claire de ce qui arrive.",
+  },
+  {
+    icon: "word",
+    title: "Livrables",
+    desc: "Chaque échange produit des livrables structurés — tableaux, documents — exportables en PDF ou Word.",
+  },
+];
+
 const FEATURED_AGENT_IDS: AgentId[] = ["strategist", "analyst", "mentor", "coach", "cto", "creative"];
 
 export function LandingScreen({
@@ -146,8 +169,8 @@ export function LandingScreen({
               maxWidth: 560,
             }}
           >
-            Stratégie, finance, lancement, reconversion. Choisissez un agent, démarrez une session structurée et
-            obtenez des livrables concrets, pas juste une conversation.
+            Choisissez un conseiller IA spécialisé, démarrez une session structurée — puis pilotez la suite
+            au même endroit : projets, tâches, agenda et livrables. Un espace de travail complet, pas juste une conversation.
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
             <button onClick={onSignup} style={primaryBtn}>
@@ -158,6 +181,41 @@ export function LandingScreen({
                 Se connecter
               </button>
             )}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              marginTop: 22,
+            }}
+          >
+            {[
+              { icon: "target" as IconName, label: "Projets" },
+              { icon: "tasks" as IconName, label: "Tâches" },
+              { icon: "clock" as IconName, label: "Agenda" },
+              { icon: "word" as IconName, label: "Livrables" },
+            ].map((p) => (
+              <span
+                key={p.label}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 12px",
+                  borderRadius: 100,
+                  background: "rgba(255,255,255,0.10)",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  color: "rgba(255,255,255,0.92)",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                }}
+              >
+                <Icon name={p.icon} size={13} color="rgba(255,255,255,0.92)" />
+                {p.label}
+              </span>
+            ))}
           </div>
         </div>
       </div>
@@ -233,6 +291,61 @@ export function LandingScreen({
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Espace de travail */}
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: isMobile ? "36px 20px 8px" : "56px 40px 8px" }}>
+        <h2
+          style={{
+            margin: "0 0 6px",
+            fontSize: isMobile ? 19 : 22,
+            fontWeight: 800,
+            color: C.text,
+            letterSpacing: "-0.02em",
+            textAlign: "center",
+          }}
+        >
+          Un espace de travail complet, pas juste un chat
+        </h2>
+        <p style={{ margin: "0 0 28px", color: C.textSub, fontSize: 14, textAlign: "center" }}>
+          Vos conseils se transforment en projets pilotés — tâches, échéances et livrables réunis au même endroit.
+        </p>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
+            gap: 12,
+          }}
+        >
+          {WORKSPACE_PILLARS.map((p) => (
+            <div
+              key={p.title}
+              style={{
+                background: C.bg,
+                border: `1px solid ${C.border}`,
+                borderRadius: 12,
+                padding: "16px 16px",
+              }}
+            >
+              <div
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  background: C.navyLight,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginBottom: 12,
+                }}
+              >
+                <Icon name={p.icon} size={17} color={C.navy} />
+              </div>
+              <div style={{ fontSize: 14.5, fontWeight: 700, color: C.text, marginBottom: 6 }}>{p.title}</div>
+              <div style={{ fontSize: 13, color: C.textSub, lineHeight: 1.55 }}>{p.desc}</div>
+            </div>
+          ))}
         </div>
       </div>
 
