@@ -6,7 +6,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { AGENTS, AgentId, Task, TaskPriority, TaskStatus } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
-import { dueDateMeta, STATUS_META, STATUS_ORDER } from "@/lib/tasks";
+import { dueDateMeta, sortedComments, STATUS_META, STATUS_ORDER } from "@/lib/tasks";
 import type { ProjectLite } from "./AgendaTimeline";
 import { Badge } from "./TaskBits";
 import { Icon, IconName } from "./Icon";
@@ -22,6 +22,9 @@ interface TaskDetailModalProps {
   onSetContent: (c: string) => void;
   onDelete: () => void;
   onOpenSession: (id: string) => void;
+  onAddComment: (content: string) => void;
+  onEditComment: (commentId: string, content: string) => void;
+  onDeleteComment: (commentId: string) => void;
 }
 
 export function TaskDetailModal({
@@ -35,9 +38,15 @@ export function TaskDetailModal({
   onSetContent,
   onDelete,
   onOpenSession,
+  onAddComment,
+  onEditComment,
+  onDeleteComment,
 }: TaskDetailModalProps) {
   const [draft, setDraft] = useState(task.content);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
 
   // Échap ferme la popup (cohérent avec les autres modaux).
   useEffect(() => {
@@ -53,6 +62,22 @@ export function TaskDetailModal({
     if (text && text !== task.content) onSetContent(text);
     else setDraft(task.content);
   };
+
+  const submitNewComment = () => {
+    const text = newComment.trim();
+    if (!text) return;
+    onAddComment(text);
+    setNewComment("");
+  };
+
+  const commitEdit = (commentId: string) => {
+    const text = editDraft.trim();
+    if (text) onEditComment(commentId, text);
+    setEditingCommentId(null);
+  };
+
+  const commentDateLabel = (iso: string) =>
+    new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
   const agent = task.source_agent_id ? AGENTS[task.source_agent_id as AgentId] : null;
   const due = task.due_date ? dueDateMeta(task.due_date, task.status === "done") : null;
@@ -247,6 +272,127 @@ export function TaskDetailModal({
             )}
           </div>
         )}
+
+        {/* Commentaires */}
+        <div>
+          <div style={labelStyle}>Commentaires</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            <textarea
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submitNewComment();
+                }
+              }}
+              placeholder="Ajouter un commentaire…"
+              rows={1}
+              style={{
+                flex: 1,
+                boxSizing: "border-box",
+                fontSize: 13,
+                color: C.text,
+                fontFamily: "inherit",
+                border: `1.5px solid ${C.border}`,
+                borderRadius: 8,
+                padding: "7px 10px",
+                outline: "none",
+                resize: "none",
+                background: C.white,
+              }}
+            />
+            <button
+              onClick={submitNewComment}
+              disabled={!newComment.trim()}
+              style={{
+                background: newComment.trim() ? C.navy : C.bg,
+                color: newComment.trim() ? "white" : C.textMute,
+                border: "none",
+                borderRadius: 8,
+                padding: "0 14px",
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: newComment.trim() ? "pointer" : "default",
+                fontFamily: "inherit",
+              }}
+            >
+              Ajouter
+            </button>
+          </div>
+
+          {sortedComments(task).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {sortedComments(task).map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    border: `1.5px solid ${C.border}`,
+                    borderRadius: 8,
+                    padding: "8px 10px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                  }}
+                >
+                  {editingCommentId === c.id ? (
+                    <textarea
+                      autoFocus
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onBlur={() => commitEdit(c.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          (e.target as HTMLTextAreaElement).blur();
+                        }
+                      }}
+                      rows={2}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        fontSize: 13,
+                        color: C.text,
+                        fontFamily: "inherit",
+                        border: "none",
+                        outline: "none",
+                        resize: "vertical",
+                        padding: 0,
+                      }}
+                    />
+                  ) : (
+                    <div style={{ fontSize: 13, color: C.text, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
+                      {c.content}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 10.5, color: C.textMute, fontWeight: 600 }}>
+                      {commentDateLabel(c.updated_at ?? c.created_at)}
+                      {c.updated_at && " · modifié"}
+                    </span>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={() => {
+                          setEditingCommentId(c.id);
+                          setEditDraft(c.content);
+                        }}
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
+                      >
+                        <Icon name="pencil" size={12} color={C.textMute} />
+                      </button>
+                      <button
+                        onClick={() => onDeleteComment(c.id)}
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
+                      >
+                        <Icon name="trash" size={12} color={C.textMute} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Pied : suppression (gauche) + fermeture (droite) */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 2 }}>
