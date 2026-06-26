@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { AGENTS, AgentId, ChatMessage, PROJECT_TYPES, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
+import { useTasks } from "@/lib/use-tasks";
 import { Icon, IconName } from "./Icon";
 
 interface ProjectSession {
@@ -39,12 +40,6 @@ interface SessionAggRow {
   panel_agent_ids?: string[] | null;
 }
 
-interface TaskAggRow {
-  id: string;
-  status: string;
-  session_id: string | null;
-}
-
 export interface NewProjectInput {
   name: string;
   icon: string;
@@ -63,13 +58,15 @@ export function ProjectsScreen({
 }) {
   const isMobile = useIsMobile();
   const supabase = createClient();
-  const [projects, setProjects] = useState<ProjectWithStats[]>([]);
+  const { tasks } = useTasks();
+  const [rawProjects, setRawProjects] = useState<Project[]>([]);
+  const [allSessions, setAllSessions] = useState<SessionAggRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [projectsRes, sessionsRes, tasksRes] = await Promise.all([
+    const [projectsRes, sessionsRes] = await Promise.all([
       supabase
         .from("projects")
         .select("id, name, icon, color, project_type, stage, created_at, updated_at")
@@ -80,21 +77,29 @@ export function ProjectsScreen({
         .is("archived_at", null)
         .not("project_id", "is", null)
         .order("updated_at", { ascending: false }),
-      supabase.from("tasks").select("id, status, session_id"),
     ]);
 
-    const allProjects = (projectsRes.data ?? []) as Project[];
-    const allSessions = (sessionsRes.data ?? []) as SessionAggRow[];
-    const allTasks = (tasksRes.data ?? []) as TaskAggRow[];
+    setRawProjects((projectsRes.data ?? []) as Project[]);
+    setAllSessions((sessionsRes.data ?? []) as SessionAggRow[]);
+    setLoading(false);
+  }, [supabase]);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Tâches issues du cache SWR partagé (useTasks) plutôt que d'un fetch dédié,
+  // pour éviter une requête Supabase dupliquée et rester synchro avec les
+  // mutations faites depuis les autres écrans.
+  const projects = useMemo<ProjectWithStats[]>(() => {
     const sessionToProject = new Map<string, string>();
     for (const s of allSessions) {
       if (s.project_id) sessionToProject.set(s.id, s.project_id);
     }
 
-    const enriched: ProjectWithStats[] = allProjects.map((p) => {
+    return rawProjects.map((p) => {
       const sessions = allSessions.filter((s) => s.project_id === p.id);
-      const tasksDone = allTasks.filter(
+      const tasksDone = tasks.filter(
         (t) => t.status === "done" && t.session_id && sessionToProject.get(t.session_id) === p.id,
       ).length;
       const projectSessions: ProjectSession[] = sessions.map((s) => ({
@@ -106,14 +111,7 @@ export function ProjectsScreen({
       }));
       return { ...p, stats: computeStats(sessions, tasksDone), sessions: projectSessions };
     });
-
-    setProjects(enriched);
-    setLoading(false);
-  }, [supabase]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  }, [rawProjects, allSessions, tasks]);
 
   const createProject = async (input: NewProjectInput) => {
     const {
@@ -135,7 +133,7 @@ export function ProjectsScreen({
 
   const deleteProject = async (id: string) => {
     await supabase.from("projects").delete().eq("id", id);
-    setProjects((p) => p.filter((x) => x.id !== id));
+    setRawProjects((p) => p.filter((x) => x.id !== id));
   };
 
   return (
