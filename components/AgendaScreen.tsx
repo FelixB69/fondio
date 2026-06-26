@@ -48,6 +48,9 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
     setStartDate,
     setContent,
     shiftDates,
+    addComment,
+    editComment,
+    deleteComment,
   } = useTasks();
 
   // Les projets servent aux libellés et aux filtres ; chargés une seule fois.
@@ -257,6 +260,9 @@ export function AgendaScreen({ onOpenSession }: { onOpenSession: (id: string) =>
           onSetStart={(d) => setStartDate(editingTask, d)}
           onSetDue={(d) => setDueDate(editingTask, d)}
           onSetContent={(c) => setContent(editingTask, c)}
+          onAddComment={(content) => addComment(editingTask, content)}
+          onEditComment={(commentId, content) => editComment(editingTask, commentId, content)}
+          onDeleteComment={(commentId) => deleteComment(editingTask, commentId)}
           onDelete={() => deleteTask(editingTask)}
           onOpenSession={onOpenSession}
         />
