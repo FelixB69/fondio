@@ -444,6 +444,18 @@ export function Sidebar({
 
       {/* Nav */}
       <div style={{ padding: "6px 8px 4px" }}>
+        <div
+          style={{
+            padding: "2px 10px 6px",
+            fontSize: 10.5,
+            fontWeight: 700,
+            color: C.textMute,
+            letterSpacing: "0.07em",
+            textTransform: "uppercase",
+          }}
+        >
+          Espace de travail
+        </div>
         <NavItem icon="target" label="Projets" active={currentView === "projects"} href="/projects" />
         <NavItem icon="book" label="Bibliothèque" active={currentView === "library"} href="/library" />
         <NavItem
