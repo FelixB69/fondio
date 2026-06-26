@@ -95,6 +95,13 @@ Règles :
 - Tous les "rows" d'une table ont exactement la même longueur que "headers".
 - Le markdown peut contenir titres, listes, gras, italique. Pas de tableaux markdown : utilise plutôt "kind": "table".
 - Réponds en français. Aucun texte hors du JSON.
+
+Règle d'ancrage : reprends dans le contenu détaillé (titres, lignes de tableau,
+texte du document) au moins un fait précis mentionné dans la conversation
+(chiffre, nom, lieu, date, contrainte). N'utilise jamais de placeholder
+générique ("Étape 1", "Objectif principal") sans le relier à un détail réel.
+N'invente jamais de chiffre ou de fait que l'utilisateur n'a pas donné : si une
+info manque, écris "[à préciser]" plutôt qu'une valeur générique plausible.
 `.trim();
 
 export type TaskStatus = "todo" | "doing" | "done";
