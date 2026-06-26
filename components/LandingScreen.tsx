@@ -9,16 +9,6 @@ import { Icon, IconName } from "./Icon";
 
 const FEATURES: { icon: IconName; title: string; desc: string }[] = [
   {
-    icon: "target",
-    title: "Projets & paliers",
-    desc: "Rattachez vos sessions à un projet et suivez sa progression par étapes, du brief au lancement.",
-  },
-  {
-    icon: "msgSquare",
-    title: "Livrables concrets",
-    desc: "Chaque échange produit des livrables structurés (tableaux, documents) exportables en PDF ou Word.",
-  },
-  {
     icon: "zap",
     title: "Mode Challenger",
     desc: "Activez-le pour que l'agent challenge vos hypothèses et pointe vos angles morts au lieu de valider.",
@@ -27,6 +17,11 @@ const FEATURES: { icon: IconName; title: string; desc: string }[] = [
     icon: "users",
     title: "Panel multi-agents",
     desc: "Réunissez plusieurs conseillers sur une même session pour croiser leurs points de vue et obtenir une synthèse.",
+  },
+  {
+    icon: "msgSquare",
+    title: "Sessions structurées",
+    desc: "Chaque échange suit un fil clair — contexte, analyse, recommandations — au lieu d'une conversation qui s'éparpille.",
   },
 ];
 
@@ -349,12 +344,27 @@ export function LandingScreen({
         </div>
       </div>
 
-      {/* Features */}
+      {/* Features — Conseil IA */}
       <div style={{ maxWidth: 980, margin: "0 auto", padding: isMobile ? "36px 20px" : "56px 40px" }}>
+        <h2
+          style={{
+            margin: "0 0 6px",
+            fontSize: isMobile ? 19 : 22,
+            fontWeight: 800,
+            color: C.text,
+            letterSpacing: "-0.02em",
+            textAlign: "center",
+          }}
+        >
+          Un conseil IA qui va au fond des choses
+        </h2>
+        <p style={{ margin: "0 0 28px", color: C.textSub, fontSize: 14, textAlign: "center" }}>
+          Pas un simple chatbot : des conseillers qui structurent, challengent et croisent les points de vue.
+        </p>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "repeat(4, 1fr)",
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)",
             gap: 16,
           }}
         >
