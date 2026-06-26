@@ -10,10 +10,12 @@ import {
   inDaysStr,
   matchesAgenda,
   matchesFilter,
+  pendingNotifications,
   sortedComments,
   startOfWeekYmd,
   taskBounds,
   todayStr,
+  TaskDismissal,
 } from "./tasks";
 
 // Fabrique une tâche minimale ; on surcharge les champs utiles au test.
@@ -194,5 +196,39 @@ describe("matchesAgenda", () => {
     expect(matchesAgenda(t, { ...base, projectId: "p2" })).toBe(false);
     expect(matchesAgenda(t, { ...base, query: "pitch" })).toBe(true);
     expect(matchesAgenda(t, { ...base, query: "budget" })).toBe(false);
+  });
+});
+
+describe("pendingNotifications", () => {
+  it("inclut une tâche en retard sans dismissal", () => {
+    const task = makeTask({ id: "t1", due_date: addDaysYmd(todayStr(), -2) });
+    const result = pendingNotifications([task], []);
+    expect(result).toEqual([{ task, urgency: "overdue" }]);
+  });
+
+  it("inclut une tâche due aujourd'hui ou demain, exclut au-delà", () => {
+    const today = makeTask({ id: "t1", due_date: todayStr() });
+    const tomorrow = makeTask({ id: "t2", due_date: inDaysStr(1) });
+    const later = makeTask({ id: "t3", due_date: inDaysStr(2) });
+    const result = pendingNotifications([today, tomorrow, later], []);
+    expect(result.map((n) => n.task.id)).toEqual(["t1", "t2"]);
+  });
+
+  it("exclut toujours une tâche déjà faite, même en retard", () => {
+    const task = makeTask({ status: "done", due_date: addDaysYmd(todayStr(), -3) });
+    expect(pendingNotifications([task], [])).toEqual([]);
+  });
+
+  it("exclut une tâche dont le dismissal correspond exactement à la due_date", () => {
+    const task = makeTask({ id: "t1", due_date: todayStr() });
+    const dismissals: TaskDismissal[] = [{ task_id: "t1", due_date: todayStr() }];
+    expect(pendingNotifications([task], dismissals)).toEqual([]);
+  });
+
+  it("réaffiche une notification si la due_date a changé depuis le dismissal", () => {
+    const task = makeTask({ id: "t1", due_date: todayStr() });
+    const dismissals: TaskDismissal[] = [{ task_id: "t1", due_date: inDaysStr(5) }];
+    const result = pendingNotifications([task], dismissals);
+    expect(result).toEqual([{ task, urgency: "today" }]);
   });
 });

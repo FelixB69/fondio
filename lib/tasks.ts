@@ -247,3 +247,38 @@ export function matchesAgenda(task: Task, f: AgendaFilters): boolean {
 export function hasActiveFilters(f: AgendaFilters): boolean {
   return f.query.trim() !== "" || f.projectId !== null || f.agentId !== null || f.showDone;
 }
+
+// ---------------------------------------------------------------------------
+// Notifications : tâches dont l'échéance réclame une attention immédiate
+// (retard, aujourd'hui, demain). Le marquage "lu" (dismissal) est attaché au
+// couple (task_id, due_date) — si la tâche est repoussée puis redevient due,
+// la notification réapparaît automatiquement (la clé ne matche plus).
+// ---------------------------------------------------------------------------
+
+export type NotificationUrgency = "overdue" | "today" | "tomorrow";
+
+export interface TaskNotification {
+  task: Task;
+  urgency: NotificationUrgency;
+}
+
+export interface TaskDismissal {
+  task_id: string;
+  due_date: string;
+}
+
+export function pendingNotifications(tasks: Task[], dismissals: TaskDismissal[]): TaskNotification[] {
+  const dismissedKeys = new Set(dismissals.map((d) => `${d.task_id}:${d.due_date}`));
+  const result: TaskNotification[] = [];
+
+  for (const task of tasks) {
+    if (task.status === "done" || !task.due_date) continue;
+    const diff = diffDaysYmd(todayStr(), task.due_date);
+    const urgency: NotificationUrgency | null = diff < 0 ? "overdue" : diff === 0 ? "today" : diff === 1 ? "tomorrow" : null;
+    if (!urgency) continue;
+    if (dismissedKeys.has(`${task.id}:${task.due_date}`)) continue;
+    result.push({ task, urgency });
+  }
+
+  return result.sort((a, b) => compareTasks(a.task, b.task));
+}
