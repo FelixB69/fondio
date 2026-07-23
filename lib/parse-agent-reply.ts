@@ -12,6 +12,12 @@
 //
 // Si rien ne matche, le texte brut devient `content` (fallback gracieux).
 
+// Une entrée de lexique : un terme technique et sa définition simple.
+export interface LexiconEntry {
+  term: string;
+  definition: string;
+}
+
 export interface ParsedReply {
   content: string;
   deliverables: string[];
@@ -19,12 +25,31 @@ export interface ParsedReply {
   // Actions à faire, émises surtout par le Chef de projet via la section
   // `TÂCHES:`. Alimentent le board (statut todo) côté serveur.
   tasks: string[];
+  // Termes techniques expliqués via la section `LEXIQUE:`. Alimentent le
+  // glossaire persistant du projet.
+  lexicon: LexiconEntry[];
 }
 
 // Motifs de titres de section. `TÂCHES` peut arriver sans accent ("TACHES").
 const LABEL_LIVRABLES = "LIVRABLES";
 const LABEL_CHALLENGES = "CHALLENGES";
 const LABEL_TACHES = "T[ÂA]CHES";
+const LABEL_LEXIQUE = "LEXIQUE";
+
+// Sépare "terme — définition" (ou "terme : définition", "terme - définition").
+// On coupe au PREMIER séparateur suivi d'un espace, pour ne pas casser un terme
+// contenant "/" ou "-" (ex. CI/CD). Sans définition, l'entrée est ignorée.
+export function parseLexiconItems(items: string[]): LexiconEntry[] {
+  const out: LexiconEntry[] = [];
+  for (const item of items) {
+    const m = item.match(/^(.+?)\s*[—–:-]\s+(.+)$/);
+    if (!m) continue;
+    const term = m[1].trim();
+    const definition = m[2].trim();
+    if (term && definition) out.push({ term, definition });
+  }
+  return out;
+}
 
 // Caractères de décoration markdown autorisés autour d'un titre de section.
 // `-` en dernier pour rester littéral dans la classe.
@@ -43,7 +68,7 @@ function buildStopRegex(otherLabels: string[]): RegExp {
 // sur sa ligne, modulo décorations markdown (`**`, `##`…) — exactement la même
 // tolérance que le parseur final. Sert à couper la prose au bon endroit.
 const SECTION_HEADING_LINE = new RegExp(
-  `^${DECO}*(?:${LABEL_LIVRABLES}|${LABEL_CHALLENGES}|${LABEL_TACHES})${DECO}*:?${DECO}*$`,
+  `^${DECO}*(?:${LABEL_LIVRABLES}|${LABEL_CHALLENGES}|${LABEL_TACHES}|${LABEL_LEXIQUE})${DECO}*:?${DECO}*$`,
   "im",
 );
 
@@ -76,6 +101,7 @@ export function parseAgentReply(raw: string): ParsedReply {
           deliverables: Array.isArray(parsed.deliverables) ? parsed.deliverables : [],
           challenges: Array.isArray(parsed.challenges) ? parsed.challenges : [],
           tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+          lexicon: [],
         };
       }
     } catch {
@@ -113,11 +139,12 @@ export function parseAgentReply(raw: string): ParsedReply {
     return { items, start };
   };
 
-  const liv = extractSection(LABEL_LIVRABLES, [LABEL_CHALLENGES, LABEL_TACHES]);
-  const cha = extractSection(LABEL_CHALLENGES, [LABEL_LIVRABLES, LABEL_TACHES]);
-  const tac = extractSection(LABEL_TACHES, [LABEL_LIVRABLES, LABEL_CHALLENGES]);
+  const liv = extractSection(LABEL_LIVRABLES, [LABEL_CHALLENGES, LABEL_TACHES, LABEL_LEXIQUE]);
+  const cha = extractSection(LABEL_CHALLENGES, [LABEL_LIVRABLES, LABEL_TACHES, LABEL_LEXIQUE]);
+  const tac = extractSection(LABEL_TACHES, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_LEXIQUE]);
+  const lex = extractSection(LABEL_LEXIQUE, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_TACHES]);
 
-  const cuts = [liv.start, cha.start, tac.start].filter((n) => n >= 0);
+  const cuts = [liv.start, cha.start, tac.start, lex.start].filter((n) => n >= 0);
   const cutAt = cuts.length > 0 ? Math.min(...cuts) : raw.length;
   const content = raw.slice(0, cutAt).trim();
 
@@ -126,5 +153,6 @@ export function parseAgentReply(raw: string): ParsedReply {
     deliverables: liv.items,
     challenges: cha.items,
     tasks: tac.items,
+    lexicon: parseLexiconItems(lex.items),
   };
 }

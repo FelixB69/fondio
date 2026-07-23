@@ -91,6 +91,47 @@ describe("parseAgentReply", () => {
     expect(r.deliverables).toEqual([]);
   });
 
+  it("extrait la section LEXIQUE en paires terme/définition", () => {
+    const raw = [
+      "Pour votre site, il faut choisir un hébergement.",
+      "",
+      "LEXIQUE:",
+      "- API — une porte qui laisse deux logiciels se parler",
+      "- hébergement : l'endroit où vit votre site sur internet",
+    ].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.content).toBe("Pour votre site, il faut choisir un hébergement.");
+    expect(r.lexicon).toEqual([
+      { term: "API", definition: "une porte qui laisse deux logiciels se parler" },
+      { term: "hébergement", definition: "l'endroit où vit votre site sur internet" },
+    ]);
+  });
+
+  it("ignore une entrée LEXIQUE sans définition", () => {
+    const raw = ["Texte.", "", "LEXIQUE:", "- API", "- CI/CD — livrer en continu"].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.lexicon).toEqual([{ term: "CI/CD", definition: "livrer en continu" }]);
+  });
+
+  it("coexiste avec LIVRABLES, TÂCHES et CHALLENGES", () => {
+    const raw = [
+      "Intro.",
+      "LIVRABLES:",
+      "- Cahier des charges",
+      "TÂCHES:",
+      "- Choisir l'hébergeur",
+      "LEXIQUE:",
+      "- hébergeur — l'entreprise qui héberge votre site",
+      "CHALLENGES:",
+      "- Quel budget ?",
+    ].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.deliverables).toEqual(["Cahier des charges"]);
+    expect(r.tasks).toEqual(["Choisir l'hébergeur"]);
+    expect(r.lexicon).toEqual([{ term: "hébergeur", definition: "l'entreprise qui héberge votre site" }]);
+    expect(r.challenges).toEqual(["Quel budget ?"]);
+  });
+
   it("parse une réponse JSON spontanée avec champ message", () => {
     const raw = JSON.stringify({
       message: "Texte principal",
