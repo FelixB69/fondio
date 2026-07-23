@@ -9,12 +9,12 @@ const STEPS: { icon: IconName; title: string; desc: string }[] = [
   {
     icon: "target",
     title: "1. Choisissez un projet",
-    desc: "Créez un projet perso ou pro : c'est le cœur de votre espace de travail, où se rassemblent sessions, tâches, agenda et livrables. Ou continuez sans projet pour une session ponctuelle.",
+    desc: "Créez un projet tech (site web, appli, IA, script...) : c'est le cœur de votre espace de travail, où se rassemblent sessions, tâches, agenda et livrables. Ou continuez sans projet pour une session ponctuelle.",
   },
   {
     icon: "sparkles",
     title: "2. Sélectionnez un agent",
-    desc: "Stratège, analyste, mentor, coach... chaque agent a son propre angle d'expertise. Vous pouvez aussi en réunir plusieurs en panel.",
+    desc: "Architecte, chef de projet, UX, debug, déploiement, formateur... chaque agent a son propre angle d'expertise. Vous pouvez aussi en réunir plusieurs en panel.",
   },
   {
     icon: "msgSquare",

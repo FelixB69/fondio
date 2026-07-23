@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 
 function AuthBrand() {
-  const featuredIds: AgentId[] = ["strategist", "analyst", "finance", "coach", "mentor"];
+  const featuredIds: AgentId[] = ["architect", "pm", "product", "quality", "devops"];
   return (
     <div
       style={{

@@ -48,7 +48,7 @@ const WORKSPACE_PILLARS: { icon: IconName; title: string; desc: string }[] = [
   },
 ];
 
-const FEATURED_AGENT_IDS: AgentId[] = ["strategist", "analyst", "mentor", "coach", "cto", "creative"];
+const FEATURED_AGENT_IDS: AgentId[] = ["architect", "pm", "product", "quality", "devops", "teacher"];
 
 export function LandingScreen({
   onLogin,
