@@ -57,6 +57,40 @@ describe("parseAgentReply", () => {
     expect(r.deliverables).toEqual(["Vrai livrable"]);
   });
 
+  it("extrait la section TÂCHES en plus de LIVRABLES et CHALLENGES", () => {
+    const raw = [
+      "Cadrage du projet.",
+      "",
+      "LIVRABLES:",
+      "- Cahier des charges v1",
+      "",
+      "TÂCHES:",
+      "- Rédiger la page d'accueil",
+      "- Choisir l'hébergeur",
+      "",
+      "CHALLENGES:",
+      "- Le budget couvre-t-il la maintenance ?",
+    ].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.content).toBe("Cadrage du projet.");
+    expect(r.deliverables).toEqual(["Cahier des charges v1"]);
+    expect(r.tasks).toEqual(["Rédiger la page d'accueil", "Choisir l'hébergeur"]);
+    expect(r.challenges).toEqual(["Le budget couvre-t-il la maintenance ?"]);
+  });
+
+  it("tolère TÂCHES sans accent et coupe la prose au bon endroit", () => {
+    const raw = [
+      "Plan de la semaine.",
+      "",
+      "TACHES:",
+      "- Installer l'environnement",
+    ].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.content).toBe("Plan de la semaine.");
+    expect(r.tasks).toEqual(["Installer l'environnement"]);
+    expect(r.deliverables).toEqual([]);
+  });
+
   it("parse une réponse JSON spontanée avec champ message", () => {
     const raw = JSON.stringify({
       message: "Texte principal",

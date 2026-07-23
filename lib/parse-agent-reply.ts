@@ -16,7 +16,15 @@ export interface ParsedReply {
   content: string;
   deliverables: string[];
   challenges: string[];
+  // Actions à faire, émises surtout par le Chef de projet via la section
+  // `TÂCHES:`. Alimentent le board (statut todo) côté serveur.
+  tasks: string[];
 }
+
+// Motifs de titres de section. `TÂCHES` peut arriver sans accent ("TACHES").
+const LABEL_LIVRABLES = "LIVRABLES";
+const LABEL_CHALLENGES = "CHALLENGES";
+const LABEL_TACHES = "T[ÂA]CHES";
 
 // Caractères de décoration markdown autorisés autour d'un titre de section.
 // `-` en dernier pour rester littéral dans la classe.
@@ -26,15 +34,16 @@ function buildHeadingRegex(label: string): RegExp {
   return new RegExp(`^${DECO}*${label}${DECO}*:?${DECO}*$`, "im");
 }
 
-function buildStopRegex(otherLabel: string): RegExp {
-  return new RegExp(`\\n${DECO}*${otherLabel}`, "i");
+// S'arrête à la 1re ligne qui débute une AUTRE section (peu importe laquelle).
+function buildStopRegex(otherLabels: string[]): RegExp {
+  return new RegExp(`\\n${DECO}*(?:${otherLabels.join("|")})`, "i");
 }
 
 // Repère la 1re ligne qui EST un titre de section (LIVRABLES/CHALLENGES), seule
 // sur sa ligne, modulo décorations markdown (`**`, `##`…) — exactement la même
 // tolérance que le parseur final. Sert à couper la prose au bon endroit.
 const SECTION_HEADING_LINE = new RegExp(
-  `^${DECO}*(?:LIVRABLES|CHALLENGES)${DECO}*:?${DECO}*$`,
+  `^${DECO}*(?:${LABEL_LIVRABLES}|${LABEL_CHALLENGES}|${LABEL_TACHES})${DECO}*:?${DECO}*$`,
   "im",
 );
 
@@ -66,6 +75,7 @@ export function parseAgentReply(raw: string): ParsedReply {
           content: parsed.message.trim(),
           deliverables: Array.isArray(parsed.deliverables) ? parsed.deliverables : [],
           challenges: Array.isArray(parsed.challenges) ? parsed.challenges : [],
+          tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
         };
       }
     } catch {
@@ -75,13 +85,13 @@ export function parseAgentReply(raw: string): ParsedReply {
 
   const extractSection = (
     label: string,
-    otherLabel: string,
+    otherLabels: string[],
   ): { items: string[]; start: number } => {
     const m = raw.match(buildHeadingRegex(label));
     if (!m || m.index === undefined) return { items: [], start: -1 };
     const start = m.index;
     const after = raw.slice(start + m[0].length);
-    const stopMatch = after.match(buildStopRegex(otherLabel));
+    const stopMatch = after.match(buildStopRegex(otherLabels));
     const stopIdx =
       stopMatch && stopMatch.index !== undefined ? stopMatch.index : after.length;
     const block = after.slice(0, stopIdx);
@@ -103,10 +113,11 @@ export function parseAgentReply(raw: string): ParsedReply {
     return { items, start };
   };
 
-  const liv = extractSection("LIVRABLES", "CHALLENGES");
-  const cha = extractSection("CHALLENGES", "LIVRABLES");
+  const liv = extractSection(LABEL_LIVRABLES, [LABEL_CHALLENGES, LABEL_TACHES]);
+  const cha = extractSection(LABEL_CHALLENGES, [LABEL_LIVRABLES, LABEL_TACHES]);
+  const tac = extractSection(LABEL_TACHES, [LABEL_LIVRABLES, LABEL_CHALLENGES]);
 
-  const cuts = [liv.start, cha.start].filter((n) => n >= 0);
+  const cuts = [liv.start, cha.start, tac.start].filter((n) => n >= 0);
   const cutAt = cuts.length > 0 ? Math.min(...cuts) : raw.length;
   const content = raw.slice(0, cutAt).trim();
 
@@ -114,5 +125,6 @@ export function parseAgentReply(raw: string): ParsedReply {
     content: content || raw.trim(),
     deliverables: liv.items,
     challenges: cha.items,
+    tasks: tac.items,
   };
 }
