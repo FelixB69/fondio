@@ -8,6 +8,7 @@ import {
 } from "@/lib/data";
 import { generateArtifacts } from "@/lib/artifacts";
 import { loadUserByokConfig, type SupabaseLike } from "@/lib/byok";
+import { buildKnownTermsInstruction, mergeGlossary, type GlossaryEntry } from "@/lib/glossary";
 import { callChatModelStream, describeLLMError, type LLMMessage } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
@@ -62,6 +63,20 @@ export async function POST(req: Request) {
 
   const agent = AGENTS[session.agent_id as AgentId];
   if (!agent) return NextResponse.json({ error: "Agent inconnu." }, { status: 400 });
+
+  // Glossaire du projet : termes déjà expliqués (pour ne pas les redéfinir) et
+  // cible où fusionner les nouveaux termes de ce tour. Seulement si la session
+  // est rattachée à un projet.
+  let glossary: GlossaryEntry[] = [];
+  if (session.project_id) {
+    const { data: proj } = await supabase
+      .from("projects")
+      .select("glossary")
+      .eq("id", session.project_id)
+      .single();
+    glossary = Array.isArray(proj?.glossary) ? (proj!.glossary as GlossaryEntry[]) : [];
+  }
+  const knownTermsBlock = buildKnownTermsInstruction(glossary);
 
   let history: ChatMessage[] = Array.isArray(session.messages) ? session.messages : [];
   const now = new Date().toISOString();
@@ -150,6 +165,7 @@ export async function POST(req: Request) {
       session.challenger_mode,
       session.project_type as ProjectType,
       isFirstReply && firstName ? firstName : undefined,
+      knownTermsBlock || undefined,
     ) + previousContext + webContext + webFormatReminder;
 
   const llmMessages: LLMMessage[] = [
@@ -237,6 +253,25 @@ export async function POST(req: Request) {
             })),
           );
           if (!taskErr) assistantMsg.tasks = fresh;
+        }
+      }
+
+      // Section LEXIQUE → affichée sur le message + fusionnée dans le glossaire
+      // persistant du projet (dédup par terme). Sans projet, on affiche sans
+      // persister.
+      if (parsed.lexicon.length) {
+        assistantMsg.lexicon = parsed.lexicon;
+        if (session.project_id) {
+          const merged = mergeGlossary(glossary, parsed.lexicon, {
+            session_id: sessionId,
+            ts: new Date().toISOString(),
+          });
+          if (merged.length !== glossary.length) {
+            await supabase
+              .from("projects")
+              .update({ glossary: merged })
+              .eq("id", session.project_id);
+          }
         }
       }
 

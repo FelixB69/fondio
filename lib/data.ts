@@ -48,6 +48,9 @@ export interface ChatMessage {
   // Intitulés des tâches créées depuis la section `TÂCHES:` de ce message
   // (surtout Chef de projet). Les vraies tâches vivent dans la table `tasks`.
   tasks?: string[];
+  // Termes techniques expliqués dans ce message (section `LEXIQUE:`), affichés
+  // en calque discret. Le glossaire persistant vit sur `projects.glossary`.
+  lexicon?: { term: string; definition: string }[];
   // Livrables structurés produits par le 2e modèle (Qwen2.5-Coder).
   // Si absent ou vide, on retombe sur `deliverables` (titres bruts).
   artifacts?: Artifact[];
@@ -206,6 +209,21 @@ Règles :
 - Le titre doit être EXACTEMENT \`TÂCHES:\` sur sa propre ligne, sans markdown (pas de **, #, ###).
 `.trim();
 
+// Volet pédagogique — mutualisé pour TOUS les agents. Cible : porteurs de
+// projet non-techniques. On explique au fil de l'eau, une fois, sans transformer
+// chaque réponse en cours (le glossaire persistant + les "termes déjà expliqués"
+// injectés au runtime évitent la redite).
+const PEDAGOGY_INSTRUCTIONS = `
+PÉDAGOGIE (utilisateur non-technique) :
+- La 1re fois que tu emploies un terme ou un outil technique NON encore connu (API, hébergement, dépôt Git, base de données, framework, CI/CD, sprint…), reste clair : la prose ne doit pas supposer que l'utilisateur connaît le jargon.
+- Si tu as introduit 1 ou 2 termes techniques importants ce tour-ci, termine par :
+
+LEXIQUE:
+- terme — définition simple en une phrase (analogie bienvenue)
+
+Règles : maximum 2 termes par tour. Ne mets dans LEXIQUE que des termes RÉELLEMENT nouveaux et utiles ce tour-ci. Ne redéfinis jamais un terme déjà expliqué. Titre EXACTEMENT \`LEXIQUE:\` seul sur sa ligne, sans markdown.
+`.trim();
+
 const CHALLENGER_INSTRUCTIONS = `
 Mode Challenger ACTIVÉ : ajoute en plus à la fin :
 
@@ -263,7 +281,9 @@ CRITICAL — Réponds TOUJOURS en français et VOUVOIE SYSTÉMATIQUEMENT l'utili
 
 ${GROUNDING_INSTRUCTIONS}
 
-${FORMAT_INSTRUCTIONS}`;
+${FORMAT_INSTRUCTIONS}
+
+${PEDAGOGY_INSTRUCTIONS}`;
 }
 
 export const AGENTS: Record<AgentId, Agent> = {
@@ -435,6 +455,7 @@ export function buildSystemPrompt(
   challenger: boolean,
   projectType: ProjectType,
   greetingFirstName?: string,
+  knownTermsBlock?: string,
 ): string {
   const parts: string[] = [
     AGENTS[agentId].systemPrompt,
@@ -443,6 +464,8 @@ export function buildSystemPrompt(
   // Le Chef de projet est le seul à produire des tâches par défaut.
   if (agentId === "pm") parts.push(TASKS_INSTRUCTIONS);
   if (challenger) parts.push(CHALLENGER_INSTRUCTIONS);
+  // Termes déjà expliqués (glossaire du projet) — pour ne pas les redéfinir.
+  if (knownTermsBlock) parts.push(knownTermsBlock);
   if (greetingFirstName) parts.push(buildGreetingInstruction(greetingFirstName));
   return parts.join("\n\n");
 }
