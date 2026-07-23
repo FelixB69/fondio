@@ -116,11 +116,13 @@ export function ProjectsScreen({
     });
   }, [rawProjects, allSessions, tasks]);
 
-  const createProject = async (input: NewProjectInput) => {
+  // Renvoie null en cas de succès, sinon un message d'erreur à afficher dans la
+  // modale (avant, l'erreur était avalée → le bouton semblait « ne rien faire »).
+  const createProject = async (input: NewProjectInput): Promise<string | null> => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return "Vous devez être connecté pour créer un projet.";
     const { error } = await supabase.from("projects").insert({
       user_id: user.id,
       name: input.name.trim(),
@@ -128,10 +130,10 @@ export function ProjectsScreen({
       color: input.color,
       project_type: input.project_type,
     });
-    if (!error) {
-      setShowNew(false);
-      load();
-    }
+    if (error) return error.message;
+    setShowNew(false);
+    load();
+    return null;
   };
 
   const deleteProject = async (id: string) => {
@@ -632,16 +634,22 @@ export function NewProjectModal({
   onCreate,
 }: {
   onClose: () => void;
-  onCreate: (input: NewProjectInput) => void;
+  onCreate: (input: NewProjectInput) => Promise<string | null>;
 }) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<string>(PROJECT_ICONS[0]);
   const [color, setColor] = useState<string>(PROJECT_COLORS[0]);
   const [type, setType] = useState<ProjectType>("web");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const submit = () => {
-    if (!name.trim()) return;
-    onCreate({ name, icon, color, project_type: type });
+  const submit = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    const err = await onCreate({ name, icon, color, project_type: type });
+    setSaving(false);
+    if (err) setError(err);
   };
 
   const overlay: CSSProperties = {
@@ -792,6 +800,23 @@ export function NewProjectModal({
           })}
         </div>
 
+        {error && (
+          <div
+            style={{
+              background: "#FEF0F4",
+              border: `1px solid ${C.pink}`,
+              color: C.pink,
+              borderRadius: 8,
+              padding: "8px 12px",
+              fontSize: 12.5,
+              lineHeight: 1.4,
+              marginBottom: 12,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button
             onClick={onClose}
@@ -811,20 +836,20 @@ export function NewProjectModal({
           </button>
           <button
             onClick={submit}
-            disabled={!name.trim()}
+            disabled={!name.trim() || saving}
             style={{
-              background: name.trim() ? C.navy : C.border,
+              background: name.trim() && !saving ? C.navy : C.border,
               color: "white",
               border: "none",
               borderRadius: 8,
               padding: "8px 16px",
               fontSize: 13,
               fontWeight: 700,
-              cursor: name.trim() ? "pointer" : "default",
+              cursor: name.trim() && !saving ? "pointer" : "default",
               fontFamily: "inherit",
             }}
           >
-            Créer
+            {saving ? "Création…" : "Créer"}
           </button>
         </div>
       </div>

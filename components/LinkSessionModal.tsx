@@ -53,11 +53,11 @@ export function LinkSessionModal({
 
   // Crée un projet à la volée puis rattache la session dessus — pas de
   // cul-de-sac quand l'utilisateur n'a encore aucun projet.
-  const createAndLink = async (input: NewProjectInput) => {
+  const createAndLink = async (input: NewProjectInput): Promise<string | null> => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return "Vous devez être connecté pour créer un projet.";
     const { data, error } = await supabase
       .from("projects")
       .insert({
@@ -69,10 +69,12 @@ export function LinkSessionModal({
       })
       .select("id")
       .single();
-    if (error || !data) return;
+    if (error) return error.message;
+    if (!data) return "Création impossible.";
     await loadProjects();
     setShowNew(false);
     await link(data.id as string);
+    return null;
   };
 
   const overlay: CSSProperties = {

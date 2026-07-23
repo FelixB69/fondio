@@ -44,11 +44,11 @@ export function ProjectPickerScreen({
     load();
   }, [load]);
 
-  const createProject = async (input: NewProjectInput) => {
+  const createProject = async (input: NewProjectInput): Promise<string | null> => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return "Vous devez être connecté pour créer un projet.";
     const { data, error } = await supabase
       .from("projects")
       .insert({
@@ -60,10 +60,12 @@ export function ProjectPickerScreen({
       })
       .select("id")
       .single();
-    if (!error && data) {
+    if (error) return error.message;
+    if (data) {
       setShowNew(false);
       onPickProject(data.id, input.project_type);
     }
+    return null;
   };
 
   return (
