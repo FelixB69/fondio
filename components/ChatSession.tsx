@@ -331,6 +331,49 @@ function StructuredBlock({
   );
 }
 
+// Calque discret listant les termes techniques expliqués ce tour-ci (section
+// LEXIQUE). Volontairement sobre : la prose reste l'accompagnement, ceci est un
+// aide-mémoire consultable, pas un cours inséré dans le texte.
+function LexiconBlock({ entries }: { entries: { term: string; definition: string }[] }) {
+  if (!entries.length) return null;
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        background: "#F8FAFC",
+        border: `1px solid ${C.border}`,
+        borderRadius: 9,
+        padding: "9px 12px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 11,
+          fontWeight: 700,
+          color: C.textSub,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          marginBottom: 6,
+        }}
+      >
+        <Icon name="book" size={12} color={C.textSub} />
+        Termes expliqués
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {entries.map((e, i) => (
+          <div key={i} style={{ fontSize: 12.5, color: C.text, lineHeight: 1.45 }}>
+            <span style={{ fontWeight: 700 }}>{e.term}</span>
+            <span style={{ color: C.textSub }}> — {e.definition}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Extrait un nom de site lisible depuis une URL.
 // Ex: "https://www.malt.fr/profil/..." -> "malt.fr"
 function hostname(url: string): string {
@@ -584,6 +627,7 @@ const MessageBubble = memo(function MessageBubble({
             color="#264573"
             bg="#EEF2FA"
           />
+          <LexiconBlock entries={msg.lexicon ?? []} />
           <SourcesBlock sources={msg.sources} />
         </div>
         {showActions && <MessageActions content={msg.content} onRegenerate={onRegenerate} />}

@@ -87,7 +87,13 @@ export function ProjectDetailScreen({
         .is("archived_at", null)
         .order("updated_at", { ascending: false }),
     ]);
-    setProject((projRes.data as Project) ?? null);
+    // Glossaire chargé à part et tolérant : si la colonne n'existe pas encore
+    // (migration Étape 4 non passée), le projet reste consultable sans planter.
+    const glossRes = await supabase.from("projects").select("glossary").eq("id", projectId).single();
+    const glossary = Array.isArray((glossRes.data as { glossary?: unknown } | null)?.glossary)
+      ? ((glossRes.data as { glossary: Project["glossary"] }).glossary ?? [])
+      : [];
+    setProject(projRes.data ? { ...(projRes.data as Project), glossary } : null);
     setSessions((sessRes.data ?? []) as SessionRow[]);
     setProjectLoading(false);
   }, [supabase, projectId]);
@@ -564,6 +570,46 @@ export function ProjectDetailScreen({
                 </div>
               ),
             )}
+          </div>
+        )}
+
+        {/* Glossaire du projet — termes techniques déjà expliqués */}
+        {!loading && project?.glossary && project.glossary.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 10,
+                fontSize: 12,
+                fontWeight: 800,
+                color: C.textSub,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              <Icon name="book" size={12} color={C.textSub} />
+              Glossaire ({project.glossary.length})
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {project.glossary.map((g, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: "9px 12px",
+                    background: C.white,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 10,
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{g.term}</span>
+                  <div style={{ fontSize: 12.5, color: C.textSub, marginTop: 2, lineHeight: 1.45 }}>
+                    {g.definition}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

@@ -1,4 +1,5 @@
 import { ChatMessage, ProjectType } from "./data";
+import { GlossaryEntry } from "./glossary";
 
 export interface Project {
   id: string;
@@ -7,6 +8,9 @@ export interface Project {
   color: string | null;
   project_type: ProjectType;
   stage: StageId;
+  // Glossaire pédagogique persistant (termes déjà expliqués). Optionnel : absent
+  // des lignes chargées avant la migration Étape 4.
+  glossary?: GlossaryEntry[];
   created_at: string;
   updated_at: string;
 }
