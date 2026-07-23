@@ -733,7 +733,7 @@ export function MultiAgentSession({
 }: MultiAgentSessionProps) {
   const isMobile = useIsMobile();
   const supabase = createClient();
-  const typeMeta = PROJECT_TYPES[projectType];
+  const typeMeta = PROJECT_TYPES[projectType] ?? PROJECT_TYPES.other;
   const panelAgents = panelAgentIds.map((id) => AGENTS[id]);
 
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);

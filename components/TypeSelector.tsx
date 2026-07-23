@@ -78,7 +78,7 @@ Choisissez le contexte de votre projet pour vous proposer les meilleurs agents d
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-          {(Object.values(PROJECT_TYPES) as Array<typeof PROJECT_TYPES.perso>).map((t) => (
+          {(Object.values(PROJECT_TYPES) as Array<typeof PROJECT_TYPES.web>).map((t) => (
             <button
               key={t.id}
               onClick={() => onSelect(t.id)}

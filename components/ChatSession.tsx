@@ -600,7 +600,7 @@ export function ChatSession({
   const isMobile = useIsMobile();
   const supabase = createClient();
   const agent = AGENTS[agentId];
-  const typeMeta = PROJECT_TYPES[projectType];
+  const typeMeta = PROJECT_TYPES[projectType] ?? PROJECT_TYPES.other;
 
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");

@@ -18,7 +18,7 @@ export function AgentSelector({
   const isMobile = useIsMobile();
   const [isPanelMode, setIsPanelMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<AgentId[]>([]);
-  const meta = PROJECT_TYPES[type];
+  const meta = PROJECT_TYPES[type] ?? PROJECT_TYPES.other;
 
   const toggleAgent = (id: AgentId) => {
     setSelectedIds((prev) =>
@@ -375,7 +375,7 @@ export function AgentSelector({
                 gap: 7,
               }}
             >
-              ✨ Lancer le panel
+              <Icon name="sparkles" size={14} color="white" /> Lancer le panel
               {selectedIds.length >= 2 && (
                 <span
                   style={{

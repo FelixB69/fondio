@@ -143,7 +143,7 @@ const SessionRow = memo(function SessionRow({
   const [hovered, setHovered] = useState(false);
   const isPanel = Array.isArray(s.panel_agent_ids) && s.panel_agent_ids.length > 1;
   const agent = AGENTS[s.agent_id];
-  const meta = PROJECT_TYPES[s.project_type];
+  const meta = PROJECT_TYPES[s.project_type] ?? PROJECT_TYPES.other;
   return (
     <div
       style={{ position: "relative", marginBottom: 2 }}

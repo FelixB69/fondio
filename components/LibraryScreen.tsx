@@ -182,10 +182,13 @@ export function LibraryScreen({
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {([
-            { id: "all", label: "Tous", icon: null },
-            { id: "pro", label: "Pro", icon: "briefcase" },
-            { id: "perso", label: "Perso", icon: "sprout" },
-          ] as const).map(({ id, label, icon }) => {
+            { id: "all" as FilterMode, label: "Tous", icon: null as IconName | null },
+            ...Object.values(PROJECT_TYPES).map((t) => ({
+              id: t.id as FilterMode,
+              label: t.name,
+              icon: t.icon as IconName | null,
+            })),
+          ]).map(({ id, label, icon }) => {
             const active = filter === id;
             return (
               <button
@@ -282,7 +285,7 @@ export function LibraryScreen({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {grouped.map((g) => {
             const agent = AGENTS[g.agentId] ?? FALLBACK_AGENT;
-            const meta = PROJECT_TYPES[g.projectType];
+            const meta = PROJECT_TYPES[g.projectType] ?? PROJECT_TYPES.other;
             return (
               <div
                 key={g.sessionId}

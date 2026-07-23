@@ -180,7 +180,7 @@ export function LinkSessionModal({
           )}
 
           {projects.map((p) => {
-            const meta = PROJECT_TYPES[p.project_type];
+            const meta = PROJECT_TYPES[p.project_type] ?? PROJECT_TYPES.other;
             const active = currentProjectId === p.id;
             return (
               <button

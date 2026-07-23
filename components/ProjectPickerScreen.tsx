@@ -115,7 +115,7 @@ export function ProjectPickerScreen({
         {!loading && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
             {projects.map((p) => {
-              const meta = PROJECT_TYPES[p.project_type];
+              const meta = PROJECT_TYPES[p.project_type] ?? PROJECT_TYPES.other;
               return (
                 <button
                   key={p.id}

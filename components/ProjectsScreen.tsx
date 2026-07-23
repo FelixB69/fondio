@@ -253,7 +253,7 @@ function ProjectCard({
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const meta = PROJECT_TYPES[project.project_type];
+  const meta = PROJECT_TYPES[project.project_type] ?? PROJECT_TYPES.other;
   const { stats, sessions } = project;
   const { stage, nextStage } = stats;
   const currentIndex = STAGES.findIndex((s) => s.id === stage.id);
@@ -632,7 +632,7 @@ export function NewProjectModal({
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<string>(PROJECT_ICONS[0]);
   const [color, setColor] = useState<string>(PROJECT_COLORS[0]);
-  const [type, setType] = useState<ProjectType>("perso");
+  const [type, setType] = useState<ProjectType>("web");
 
   const submit = () => {
     if (!name.trim()) return;
@@ -744,7 +744,7 @@ export function NewProjectModal({
 
         <Label>Type</Label>
         <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-          {(Object.values(PROJECT_TYPES) as Array<typeof PROJECT_TYPES.perso>).map((t) => {
+          {(Object.values(PROJECT_TYPES) as Array<typeof PROJECT_TYPES.web>).map((t) => {
             const active = type === t.id;
             return (
               <button

@@ -150,7 +150,7 @@ export function ProjectDetailScreen({
     );
   }
 
-  const meta = project ? PROJECT_TYPES[project.project_type] : null;
+  const meta = project ? (PROJECT_TYPES[project.project_type] ?? PROJECT_TYPES.other) : null;
   const currentStageIndex = project ? STAGES.findIndex((s) => s.id === project.stage) : 0;
 
   return (
