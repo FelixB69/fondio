@@ -571,11 +571,18 @@ const MessageBubble = memo(function MessageBubble({
             </>
           ) : null}
           <StructuredBlock
-            label="⚡ Questions difficiles"
+            label="Questions difficiles"
             icon="zap"
             items={msg.challenges ?? []}
             color="#D97706"
             bg="#FFFBEB"
+          />
+          <StructuredBlock
+            label="Tâches ajoutées au projet"
+            icon="tasks"
+            items={msg.tasks ?? []}
+            color="#264573"
+            bg="#EEF2FA"
           />
           <SourcesBlock sources={msg.sources} />
         </div>
