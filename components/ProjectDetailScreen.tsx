@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AGENTS, AgentId, ChatMessage, PROJECT_TYPES, ProjectType, Task, TaskPriority, TaskStatus } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
-import { computeStats, Project, ProjectStats, STAGES, StageId } from "@/lib/projects";
+import { computeStats, Project, ProjectStats, STAGES, StageId, stageMeta } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import { useTasks } from "@/lib/use-tasks";
@@ -314,8 +314,8 @@ export function ProjectDetailScreen({
                   </div>
                 );
               })}
-              <span style={{ fontSize: 10.5, color: stats.stage.color, marginLeft: 10, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <Icon name={stats.stage.icon as IconName} size={11} color={stats.stage.color} /> {stats.stage.name}
+              <span style={{ fontSize: 10.5, color: stageMeta(project.stage).color, marginLeft: 10, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon name={stageMeta(project.stage).icon as IconName} size={11} color={stageMeta(project.stage).color} /> {stageMeta(project.stage).name}
               </span>
             </div>
 

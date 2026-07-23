@@ -5,11 +5,14 @@ import { AGENTS, AgentId, ChatMessage, PROJECT_TYPES, ProjectType } from "@/lib/
 import { C } from "@/lib/design-tokens";
 import {
   computeStats,
+  nextStage,
   PROJECT_COLORS,
   PROJECT_ICONS,
   Project,
   ProjectStats,
   STAGES,
+  stageIndex,
+  stageMeta,
 } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -255,8 +258,10 @@ function ProjectCard({
   const [expanded, setExpanded] = useState(false);
   const meta = PROJECT_TYPES[project.project_type] ?? PROJECT_TYPES.other;
   const { stats, sessions } = project;
-  const { stage, nextStage } = stats;
-  const currentIndex = STAGES.findIndex((s) => s.id === stage.id);
+  // L'étape vient du statut stocké (project.stage), plus de l'XP.
+  const stage = stageMeta(project.stage);
+  const next = nextStage(project.stage);
+  const currentIndex = stageIndex(project.stage);
 
   return (
     <div
@@ -439,9 +444,9 @@ function ProjectCard({
             </div>
           );
         })}
-        {nextStage && (
+        {next && (
           <span style={{ fontSize: 10.5, color: C.textMute, marginLeft: 10, fontWeight: 600, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
-            → <Icon name={nextStage.icon as IconName} size={10} color={C.textMute} /> {nextStage.name}
+            → <Icon name={next.icon as IconName} size={10} color={C.textMute} /> {next.name}
           </span>
         )}
       </div>
