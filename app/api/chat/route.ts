@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
   const { data: session, error: sessErr } = await supabase
     .from("sessions")
-    .select("id, agent_id, project_type, challenger_mode, messages, title")
+    .select("id, agent_id, project_type, challenger_mode, messages, title, project_id")
     .eq("id", sessionId)
     .eq("user_id", user.id)
     .single();
@@ -215,6 +215,30 @@ export async function POST(req: Request) {
       if (parsed.deliverables.length) assistantMsg.deliverables = parsed.deliverables;
       if (parsed.challenges.length) assistantMsg.challenges = parsed.challenges;
       if (webSources.length) assistantMsg.sources = webSources;
+
+      // Section TÂCHES → tâches du board (statut todo). Dédupliquées par contenu
+      // sur la session pour ne pas recréer les mêmes en cas de régénération.
+      if (parsed.tasks.length) {
+        const { data: existing } = await supabase
+          .from("tasks")
+          .select("content")
+          .eq("session_id", sessionId);
+        const seen = new Set((existing ?? []).map((t: { content: string }) => t.content));
+        const fresh = parsed.tasks.filter((t) => !seen.has(t));
+        if (fresh.length) {
+          const { error: taskErr } = await supabase.from("tasks").insert(
+            fresh.map((content) => ({
+              user_id: user.id,
+              session_id: sessionId,
+              project_id: session.project_id ?? null,
+              content,
+              status: "todo",
+              source_agent_id: agent.id,
+            })),
+          );
+          if (!taskErr) assistantMsg.tasks = fresh;
+        }
+      }
 
       send({ t: "text-done", assistant: assistantMsg, title: newTitle });
 

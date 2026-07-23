@@ -45,6 +45,9 @@ export interface ChatMessage {
   content: string;
   deliverables?: string[];
   challenges?: string[];
+  // Intitulés des tâches créées depuis la section `TÂCHES:` de ce message
+  // (surtout Chef de projet). Les vraies tâches vivent dans la table `tasks`.
+  tasks?: string[];
   // Livrables structurés produits par le 2e modèle (Qwen2.5-Coder).
   // Si absent ou vide, on retombe sur `deliverables` (titres bruts).
   artifacts?: Artifact[];
@@ -184,6 +187,23 @@ Bon (ancré) : "Plan de prospection pour les 12 cafés du 11e arrondissement"
 "définir vos objectifs", "structurer votre approche", "prochaines étapes".
 Si tu les emploies, complète-les toujours avec un détail concret tiré de
 la conversation.
+`.trim();
+
+// Section TÂCHES — réservée par défaut au Chef de projet (agent "pm"). Alimente
+// le board de tâches en statut "todo". On ne demande NI statut NI date au LLM
+// (peu fiable) : juste des intitulés d'action.
+const TASKS_INSTRUCTIONS = `
+GESTION DE PROJET — Si, et seulement si, des actions concrètes à réaliser ressortent de l'échange, ajoute en toute fin :
+
+TÂCHES:
+- action concrète à réaliser (verbe à l'infinitif)
+- autre action concrète
+
+Règles :
+- Maximum 3 tâches par tour. N'invente pas de tâches pour remplir : s'il n'y a rien de concret à faire ce tour-ci, n'écris PAS la section.
+- Chaque tâche est ancrée sur un détail réel de la conversation (fonctionnalité, page, outil, échéance cités).
+- N'écris ni statut, ni date, ni priorité — juste l'intitulé de l'action.
+- Le titre doit être EXACTEMENT \`TÂCHES:\` sur sa propre ligne, sans markdown (pas de **, #, ###).
 `.trim();
 
 const CHALLENGER_INSTRUCTIONS = `
@@ -420,6 +440,8 @@ export function buildSystemPrompt(
     AGENTS[agentId].systemPrompt,
     PROJECT_TYPE_INSTRUCTIONS[projectType],
   ];
+  // Le Chef de projet est le seul à produire des tâches par défaut.
+  if (agentId === "pm") parts.push(TASKS_INSTRUCTIONS);
   if (challenger) parts.push(CHALLENGER_INSTRUCTIONS);
   if (greetingFirstName) parts.push(buildGreetingInstruction(greetingFirstName));
   return parts.join("\n\n");
