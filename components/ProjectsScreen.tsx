@@ -748,30 +748,44 @@ export function NewProjectModal({
         </div>
 
         <Label>Type</Label>
-        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 8,
+            marginBottom: 18,
+          }}
+        >
           {(Object.values(PROJECT_TYPES) as Array<typeof PROJECT_TYPES.web>).map((t) => {
             const active = type === t.id;
             return (
               <button
                 key={t.id}
                 onClick={() => setType(t.id)}
+                title={t.name}
                 style={{
-                  flex: 1,
                   background: active ? t.bg : C.white,
                   border: `1.5px solid ${active ? t.color : C.border}`,
-                  borderRadius: 9,
-                  padding: "9px 12px",
+                  borderRadius: 10,
+                  padding: "10px 8px",
                   cursor: "pointer",
                   fontFamily: "inherit",
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
-                  gap: 7,
+                  justifyContent: "center",
+                  gap: 6,
+                  minWidth: 0,
+                  minHeight: 66,
+                  textAlign: "center",
                   color: active ? t.color : C.textSub,
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: 700,
+                  lineHeight: 1.25,
+                  transition: "border-color 0.15s, background 0.15s",
                 }}
               >
-                <Icon name={t.icon as IconName} size={14} color={active ? t.color : C.textSub} />
+                <Icon name={t.icon as IconName} size={18} color={active ? t.color : C.textSub} />
                 {t.name}
               </button>
             );
