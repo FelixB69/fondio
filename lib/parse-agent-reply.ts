@@ -44,8 +44,11 @@ export function parseLexiconItems(items: string[]): LexiconEntry[] {
   for (const item of items) {
     const m = item.match(/^(.+?)\s*[—–:-]\s+(.+)$/);
     if (!m) continue;
-    const term = m[1].trim();
-    const definition = m[2].trim();
+    // Nettoie les décorations markdown résiduelles (*, **, `) que les modèles
+    // cloud ajoutent malgré la consigne.
+    const clean = (s: string) => s.replace(/[*`]/g, "").trim();
+    const term = clean(m[1]);
+    const definition = clean(m[2]);
     if (term && definition) out.push({ term, definition });
   }
   return out;
@@ -112,31 +115,41 @@ export function parseAgentReply(raw: string): ParsedReply {
   const extractSection = (
     label: string,
     otherLabels: string[],
-  ): { items: string[]; start: number } => {
+  ): { items: string[]; start: number; end: number } => {
     const m = raw.match(buildHeadingRegex(label));
-    if (!m || m.index === undefined) return { items: [], start: -1 };
+    if (!m || m.index === undefined) return { items: [], start: -1, end: -1 };
     const start = m.index;
-    const after = raw.slice(start + m[0].length);
+    const headingEnd = start + m[0].length;
+    const after = raw.slice(headingEnd);
     const stopMatch = after.match(buildStopRegex(otherLabels));
     const stopIdx =
       stopMatch && stopMatch.index !== undefined ? stopMatch.index : after.length;
     const block = after.slice(0, stopIdx);
     // On ne garde que la LISTE de puces. Dès qu'une ligne de prose (sans puce)
     // suit les puces, on s'arrête : sinon le texte que le modèle écrit parfois
-    // APRÈS la liste (violation du format) devenait de faux livrables.
+    // APRÈS la liste (violation du format) devenait de faux livrables — et
+    // devait rester dans la prose, pas dans la section.
     const items: string[] = [];
     let sawBullet = false;
+    let offset = 0; // position courante dans `block`
+    let listEndOffset = 0; // fin (dans `block`) de la dernière puce retenue
     for (const line of block.split("\n")) {
+      const nextOffset = offset + line.length + 1; // +1 pour le \n retiré par split
       const isBullet = /^\s*(?:[-*•‣–]|\d+[.)])\s+/.test(line);
       const cleaned = stripBulletPrefix(line);
+      offset = nextOffset;
       // Ligne vide ou pure décoration markdown ("**", "---") : on ignore.
       if (!cleaned || !/[A-Za-zÀ-ÿ0-9]/.test(cleaned)) continue;
       // Prose après les puces → fin de la section structurée.
       if (sawBullet && !isBullet) break;
       if (isBullet) sawBullet = true;
       items.push(cleaned);
+      listEndOffset = nextOffset;
     }
-    return { items, start };
+    // Fin du bloc à retirer du texte affiché = titre + liste de puces seulement
+    // (la prose éventuelle avant/après reste du contenu, où qu'elle soit placée).
+    const end = headingEnd + Math.min(listEndOffset, stopIdx);
+    return { items, start, end };
   };
 
   const liv = extractSection(LABEL_LIVRABLES, [LABEL_CHALLENGES, LABEL_TACHES, LABEL_LEXIQUE]);
@@ -144,12 +157,23 @@ export function parseAgentReply(raw: string): ParsedReply {
   const tac = extractSection(LABEL_TACHES, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_LEXIQUE]);
   const lex = extractSection(LABEL_LEXIQUE, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_TACHES]);
 
-  const cuts = [liv.start, cha.start, tac.start, lex.start].filter((n) => n >= 0);
-  const cutAt = cuts.length > 0 ? Math.min(...cuts) : raw.length;
-  const content = raw.slice(0, cutAt).trim();
+  // On retire chaque bloc de section du texte affiché, où qu'il soit placé
+  // (certains modèles mettent LEXIQUE en TÊTE). Le contenu = la prose restante.
+  const spans = [liv, cha, tac, lex]
+    .filter((s) => s.start >= 0)
+    .sort((a, b) => a.start - b.start);
+  let content = "";
+  let cursor = 0;
+  for (const s of spans) {
+    if (s.start > cursor) content += raw.slice(cursor, s.start);
+    cursor = Math.max(cursor, s.end);
+  }
+  content += raw.slice(cursor);
+  content = content.replace(/\n{3,}/g, "\n\n").trim();
 
   return {
-    content: content || raw.trim(),
+    // Fallback vers le brut UNIQUEMENT si aucune section n'a été détectée.
+    content: content || (spans.length ? content : raw.trim()),
     deliverables: liv.items,
     challenges: cha.items,
     tasks: tac.items,

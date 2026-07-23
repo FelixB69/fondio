@@ -132,6 +132,26 @@ describe("parseAgentReply", () => {
     expect(r.challenges).toEqual(["Quel budget ?"]);
   });
 
+  it("retire un bloc de section placé EN TÊTE et garde la prose qui suit", () => {
+    const raw = [
+      "LEXIQUE:",
+      "- Site — une vitrine en ligne",
+      "",
+      "Un site est une vitrine numérique.",
+      "Vous pouvez y mettre vos photos.",
+    ].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.lexicon).toEqual([{ term: "Site", definition: "une vitrine en ligne" }]);
+    expect(r.content).toBe("Un site est une vitrine numérique.\nVous pouvez y mettre vos photos.");
+    expect(r.content).not.toContain("LEXIQUE");
+  });
+
+  it("nettoie les décorations markdown dans les entrées de lexique", () => {
+    const raw = ["Intro.", "", "LEXIQUE:", "- **Site (site web)** — une vitrine sur `Internet`"].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.lexicon).toEqual([{ term: "Site (site web)", definition: "une vitrine sur Internet" }]);
+  });
+
   it("parse une réponse JSON spontanée avec champ message", () => {
     const raw = JSON.stringify({
       message: "Texte principal",
