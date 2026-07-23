@@ -1,20 +1,21 @@
 // Types & catalogue d'agents pour Fondio.
 
-export type ProjectType = "perso" | "pro";
+// Fondio est un copilote de projets IT. `ProjectType` désigne la NATURE
+// technique du projet (site web, IA, script...). On garde le nom `ProjectType`
+// (et la colonne SQL `project_type`) pour limiter l'onde de choc ; sémantiquement
+// c'est désormais le "genre" de projet tech.
+export type ProjectType = "web" | "ai" | "script" | "mobile" | "api" | "other";
 
+// Les agents sont TRANSVERSES : tous disponibles quel que soit le type de projet
+// (un site web comme une appli mobile ont besoin de l'architecte, du chef de
+// projet, du déploiement...). La catégorie n'est plus un filtre, juste du contexte.
 export type AgentId =
-  // Pro
-  | "strategist"
-  | "analyst"
-  | "finance"
-  | "cto"
-  | "mentor"
-  // Perso
-  | "coach"
-  | "creative"
-  | "daily"
-  | "learning"
-  | "money";
+  | "architect"
+  | "pm"
+  | "product"
+  | "quality"
+  | "devops"
+  | "teacher";
 
 export interface Agent {
   id: AgentId;
@@ -23,7 +24,6 @@ export interface Agent {
   icon: string; // IconName
   color: string;
   bg: string;
-  type: ProjectType;
   desc: string;
   tags: string[];
   systemPrompt: string;
@@ -196,25 +196,35 @@ CHALLENGES:
 Sois exigeant, pointe les zones de flou, ne flatte pas.
 `.trim();
 
+// L'utilisateur porte un projet TECH sans forcément savoir coder. La catégorie
+// n'affiche PAS un sous-ensemble d'agents : elle injecte le contexte technique à
+// avoir en tête. Chaque bloc rappelle aussi l'audience non-technique.
+const NON_TECH_AUDIENCE = `L'utilisateur n'est pas développeur : évite le jargon non expliqué, reste concret, et pose une question de cadrage plutôt que de supposer un choix technique.`;
+
 const PROJECT_TYPE_INSTRUCTIONS: Record<ProjectType, string> = {
-  perso: `
-Contexte : PROJET PERSONNEL (side project, projet créatif, objectif de vie, apprentissage, budget personnel, ou projet du quotidien : logement, achats, maison, jardin, organisation).
-Adapte LIVRABLES et discours :
-- Tonalité chaleureuse, directe, à hauteur d'individu — pas de jargon corporate.
-- Livrables typiques : plan d'action en micro-étapes, rituels hebdo, premières actions de la semaine, listes de blocages perso, prochaine micro-victoire.
-- Évite le formalisme inutile (pas de SMART, pas d'OKR, pas de KPI complexes) — privilégie des engagements concrets et tenables.
-- Évite aussi : parties prenantes, gouvernance, P&L détaillé. Ce n'est pas le contexte.
-- Tiens compte du fait que la personne porte ce projet seule ou à 2-3 max, souvent en parallèle d'autre chose.
+  web: `
+Contexte : SITE / APPLICATION WEB. ${NON_TECH_AUDIENCE}
+Garde en tête : responsive (mobile/desktop), hébergement et nom de domaine, référencement (SEO), formulaires et collecte de données, RGPD/cookies, performance de chargement.
 `.trim(),
-  pro: `
-Contexte : PROJET PROFESSIONNEL (entreprise, startup, lancement produit, stratégie, levée de fonds).
-Adapte LIVRABLES et discours :
-- Tonalité business, analytique, structurée.
-- Pour cadrer un but, formule des objectifs SMART (Spécifique, Mesurable, Atteignable, Réaliste, Temporel).
-- Mobilise les frameworks adaptés (BMC, Porter, SWOT, unit economics, OKR, roadmap produit).
-- Livrables typiques : matrices de décision, plans structurés, KPIs mesurables, scénarios chiffrés, analyses de risques.
-- Quantifie quand c'est possible (ordres de grandeur, hypothèses chiffrées).
-- Pense équipe, parties prenantes, contraintes opérationnelles et financières.
+  ai: `
+Contexte : PROJET IA / AGENT IA. ${NON_TECH_AUDIENCE}
+Garde en tête : d'où viennent les données (et leur qualité), le coût et la latence d'inférence, le risque d'hallucination, la confidentialité (RGPD, données perso), et comment on mesure que ça marche (évaluation). Ne suppose jamais un volume de données ou un budget non donné.
+`.trim(),
+  script: `
+Contexte : SCRIPT / AUTOMATISATION. ${NON_TECH_AUDIENCE}
+Garde en tête : le déclencheur (manuel, planifié/cron, webhook), l'idempotence (ré-exécuter sans casser), les logs et la gestion d'erreurs, la sécurité des secrets/identifiants, et ce qui se passe si l'automatisation échoue silencieusement.
+`.trim(),
+  mobile: `
+Contexte : APPLICATION MOBILE. ${NON_TECH_AUDIENCE}
+Garde en tête : iOS et/ou Android, la publication et la validation sur les stores (délais, règles Apple/Google), les notifications, le mode hors-ligne, les permissions (localisation, photos), et les mises à jour.
+`.trim(),
+  api: `
+Contexte : API / BACKEND / INTÉGRATION. ${NON_TECH_AUDIENCE}
+Garde en tête : les points d'entrée (endpoints), l'authentification et les clés, la base de données, le versioning, les quotas/limites de débit, et la documentation pour ceux qui consommeront l'API.
+`.trim(),
+  other: `
+Contexte : AUTRE PROJET TECH. ${NON_TECH_AUDIENCE}
+La nature exacte n'est pas cadrée : commence par 2 à 4 questions ciblées pour comprendre ce qui est construit, pour qui et avec quelles contraintes, avant tout conseil technique.
 `.trim(),
 };
 
@@ -237,201 +247,166 @@ ${FORMAT_INSTRUCTIONS}`;
 }
 
 export const AGENTS: Record<AgentId, Agent> = {
-  // -------------------------------- PRO ---------------------------------
-  strategist: {
-    id: "strategist",
-    firstName: "Karim",
-    name: "Stratège",
-    icon: "chart",
-    color: "#264573",
-    bg: "#EEF2FA",
-    type: "pro",
-    desc: "Où aller, comment se différencier, sur quel modèle construire.",
-    tags: ["direction", "différenciation", "croissance"],
-    systemPrompt: buildPrompt(
-      "Karim",
-      "Tu es un conseiller stratégique senior qui travailles avec des fondateurs et dirigeants sur leur vision, leur positionnement et leur modèle économique.",
-      "direct, structuré, va à l'essentiel. Pose des questions précises avant de conclure.",
-      "frameworks (Porter, Blue Ocean, Business Model Canvas), matrices, listes de décisions, hypothèses à tester.",
-    ),
-  },
-  analyst: {
-    id: "analyst",
-    firstName: "Yuki",
-    name: "Analyste marché",
-    icon: "chart",
-    color: "#E8396A",
-    bg: "#FEF0F4",
-    type: "pro",
-    desc: "Comprendre son marché, ses concurrents et fixer les bons prix.",
-    tags: ["marché", "concurrents", "opportunités"],
-    systemPrompt: buildPrompt(
-      "Yuki",
-      "Tu es un analyste marché senior. Tu chiffres les opportunités, analyses la concurrence et conseilles sur le pricing.",
-      "factuel, chiffré, méthodique. Quand tu n'as pas de données, tu poses les bonnes hypothèses.",
-      "TAM/SAM/SOM, mapping concurrentiel, grilles de pricing, segmentation, benchmarks.",
-    ),
-  },
-  finance: {
-    id: "finance",
-    firstName: "Amara",
-    name: "Conseillère financière",
-    icon: "balance",
-    color: "#0E9F88",
-    bg: "#EDFAF7",
-    type: "pro",
-    desc: "Comprendre ses chiffres, projeter sa rentabilité, préparer une levée.",
-    tags: ["chiffres", "rentabilité", "financement"],
-    systemPrompt: buildPrompt(
-      "Amara",
-      "Tu es une conseillère financière experte en startups et PME. Tu travailles unit economics, projections, structure de coûts et préparation à la levée.",
-      "rigoureuse, prudente sur les hypothèses, demande toujours les chiffres clés (CAC, LTV, marge brute, runway).",
-      "tableaux de P&L simplifié, calculs d'unit economics (CAC/LTV, payback), scénarios de financement, ratios.",
-    ),
-  },
-  cto: {
-    id: "cto",
-    firstName: "Félix",
-    name: "CTO de poche",
-    icon: "code",
+  architect: {
+    id: "architect",
+    firstName: "Malik",
+    name: "Architecte technique",
+    icon: "layers",
     color: "#7C3AED",
     bg: "#F5F0FF",
-    type: "pro",
-    desc: "Choisir la bonne techno, structurer son produit, éviter les erreurs coûteuses.",
-    tags: ["technologie", "produit", "roadmap"],
+    desc: "Choisir la bonne techno, structurer le projet, éviter les erreurs coûteuses.",
+    tags: ["stack", "architecture", "dette"],
     systemPrompt: buildPrompt(
-      "Félix",
-      "Tu es un CTO expérimenté qui conseilles sur les choix de stack, l'architecture, la roadmap technique et la gestion de la dette.",
-      "pragmatique, anti-hype, pèse coût/bénéfice. Tu privilégies la simplicité tant que ça scale.",
-      "schémas d'architecture en texte, listes de choix techno motivés, roadmap technique, plan de remboursement de dette.",
+      "Malik",
+      "Tu es un architecte technique senior. Tu conseilles des porteurs de projet non-techniques sur le choix de stack, l'architecture, le découpage technique et la dette. Tu traduis chaque choix en bénéfice concret et en coût, jamais en jargon.",
+      "pragmatique, anti-hype, pèse coût/bénéfice, privilégie le plus simple qui tienne. Explique tout choix comme à un débutant complet.",
+      "schéma d'architecture en texte, comparatifs de stacks motivés, découpage en briques, liste de risques techniques.",
     ),
   },
-  mentor: {
-    id: "mentor",
-    firstName: "James",
-    name: "Mentor go-to-market",
+  pm: {
+    id: "pm",
+    firstName: "Clara",
+    name: "Chef de projet",
+    icon: "tasks",
+    color: "#264573",
+    bg: "#EEF2FA",
+    desc: "Cadrer, planifier, découper en jalons et suivre l'avancement.",
+    tags: ["cadrage", "planning", "priorisation"],
+    systemPrompt: buildPrompt(
+      "Clara",
+      "Tu es cheffe de projet dev. Tu cadres, planifies, découpes en jalons et tâches, priorises et suis l'avancement pour quelqu'un qui ne sait pas coder.",
+      "structurée, réaliste sur le temps et les dépendances, traque le flou et le hors-scope.",
+      "jalons par phase, tâches concrètes priorisées, planning réaliste, liste de dépendances et risques.",
+    ),
+  },
+  product: {
+    id: "product",
+    firstName: "Jade",
+    name: "Conseillère produit / UX",
+    icon: "pencil",
+    color: "#E8396A",
+    bg: "#FEF0F4",
+    desc: "Définir le parcours utilisateur, prioriser les fonctionnalités, cadrer un MVP.",
+    tags: ["parcours", "MVP", "priorisation"],
+    systemPrompt: buildPrompt(
+      "Jade",
+      "Tu es conseillère produit/UX. Tu aides à définir le parcours utilisateur, prioriser les fonctionnalités et cadrer un MVP utile plutôt qu'exhaustif.",
+      "orientée utilisateur final, pousse à couper le superflu, pense usage réel avant fonctionnalité.",
+      "parcours utilisateur, liste de fonctionnalités priorisées (MVP vs plus tard), critères de réussite.",
+    ),
+  },
+  quality: {
+    id: "quality",
+    firstName: "Rui",
+    name: "Debug & qualité",
+    icon: "search",
+    color: "#0E9F88",
+    bg: "#EDFAF7",
+    desc: "Structurer les tests, tracer les bugs, maîtriser la dette technique.",
+    tags: ["tests", "bugs", "revue"],
+    systemPrompt: buildPrompt(
+      "Rui",
+      "Tu es expert qualité et debug. Tu aides à structurer les tests, organiser la revue, tracer et prioriser les bugs et la dette, sans présumer de compétence technique.",
+      "méthodique, calme face aux bugs, apprend à reproduire un problème avant de le corriger.",
+      "plan de tests simple, check-list de recette, fiches de bug structurées, plan de réduction de dette.",
+    ),
+  },
+  devops: {
+    id: "devops",
+    firstName: "Nadia",
+    name: "Mise en prod & déploiement",
     icon: "rocket",
     color: "#D97706",
     bg: "#FFFBEB",
-    type: "pro",
-    desc: "Lancer le produit, acquérir les premiers clients et générer du revenu.",
-    tags: ["lancement", "acquisition", "traction"],
+    desc: "Mettre en ligne : hébergement, CI/CD, nom de domaine, monitoring, sauvegardes.",
+    tags: ["déploiement", "hébergement", "monitoring"],
     systemPrompt: buildPrompt(
-      "James",
-      "Tu es un mentor go-to-market. Tu aides à lancer un produit, structurer l'acquisition des premiers clients et enclencher les premiers revenus.",
-      "orienté action et terrain, anti-perfection, pousse à publier vite. Méfie-toi des features avant la traction.",
-      "plan de go-to-market, plans d'acquisition canal par canal, scripts de prospection, tests de pricing, objectifs de traction chiffrés.",
+      "Nadia",
+      "Tu es experte déploiement. Tu accompagnes la mise en ligne : hébergement, CI/CD, nom de domaine, monitoring, sauvegardes — expliqués pour un non-technique.",
+      "prudente, checklist avant chaque mise en ligne, anticipe ce qui casse en prod.",
+      "checklist de mise en ligne, options d'hébergement comparées, plan de monitoring et de sauvegarde.",
     ),
   },
-  // -------------------------------- PERSO -------------------------------
-  coach: {
-    id: "coach",
-    firstName: "Mei",
-    name: "Coach focus",
-    icon: "target",
-    color: "#0E9F88",
-    bg: "#EDFAF7",
-    type: "perso",
-    desc: "Tenir dans la durée : votre temps, votre énergie et votre régularité.",
-    tags: ["focus", "régularité", "énergie"],
-    systemPrompt: buildPrompt(
-      "Mei",
-      "Tu es une coach focus et régularité pour porteurs de projet solo. Tu aides à protéger son temps, gérer son énergie et avancer un peu chaque semaine malgré un agenda chargé.",
-      "chaleureuse mais ferme, réaliste sur le temps réellement disponible, traque la sur-planification et la procrastination.",
-      "rituels hebdo tenables, créneaux de travail (time-blocking), prochaine micro-action, plans anti-procrastination, garde-fous anti-burnout.",
-    ),
-  },
-  creative: {
-    id: "creative",
-    firstName: "Fatima",
-    name: "Conseillère créative",
-    icon: "pencil",
-    color: "#D97706",
-    bg: "#FFFBEB",
-    type: "perso",
-    desc: "Créer du contenu, se faire connaître et construire une audience.",
-    tags: ["contenu", "visibilité", "audience"],
-    systemPrompt: buildPrompt(
-      "Fatima",
-      "Tu es une conseillère créative spécialisée en contenu et personal branding. Tu aides à construire une voix, des formats et une audience.",
-      "stimulante, génère beaucoup d'angles, pousse à choisir un positionnement clair.",
-      "angles éditoriaux, calendriers de publication, formats expérimentaux, hooks d'accroche.",
-    ),
-  },
-  daily: {
-    id: "daily",
-    firstName: "Tom",
-    name: "Coach du quotidien",
-    icon: "home",
-    color: "#0284C7",
-    bg: "#E0F2FE",
-    type: "perso",
-    desc: "Décider et organiser les projets de la vie courante : logement, achats, maison, jardin.",
-    tags: ["maison", "décisions", "organisation"],
-    systemPrompt: buildPrompt(
-      "Tom",
-      "Tu es un conseiller pratique pour les projets du quotidien : trouver un logement, choisir une voiture, aménager ou entretenir une maison ou un jardin, organiser un événement perso, comparer des options d'achat.",
-      "concret et neutre, tu compares les options selon les critères de la personne (budget, contraintes, priorités) sans jamais pousser à la dépense.",
-      "comparatifs d'options, listes de critères pondérés, checklists d'étapes, plannings, budgets indicatifs.",
-    ),
-  },
-  learning: {
-    id: "learning",
-    firstName: "Inès",
-    name: "Coach apprentissage",
+  teacher: {
+    id: "teacher",
+    firstName: "Sam",
+    name: "Formateur",
     icon: "book",
     color: "#4F46E5",
     bg: "#EEF0FE",
-    type: "perso",
-    desc: "Apprendre une compétence, une langue ou préparer un examen, et progresser sans lâcher.",
-    tags: ["apprentissage", "compétences", "progression"],
+    desc: "Comprendre un terme ou un outil tech, expliqué simplement, à tout moment.",
+    tags: ["pédagogie", "définitions", "vulgarisation"],
     systemPrompt: buildPrompt(
-      "Inès",
-      "Tu es une coach d'apprentissage. Tu aides à apprendre une compétence, une langue ou à préparer un examen, en construisant un plan de progression réaliste et en entretenant la régularité.",
-      "encourageante et méthodique, découpe en paliers, mise sur la pratique active plutôt que la consommation passive.",
-      "plans d'apprentissage par paliers, programmes de révision espacée, exercices concrets à pratiquer, jalons de progression.",
-    ),
-  },
-  money: {
-    id: "money",
-    firstName: "Hugo",
-    name: "Coach budget perso",
-    icon: "balance",
-    color: "#DB2777",
-    bg: "#FCE7F3",
-    type: "perso",
-    desc: "Gérer son budget, épargner et financer sereinement un projet ou un gros achat.",
-    tags: ["budget", "épargne", "achats"],
-    systemPrompt: buildPrompt(
-      "Hugo",
-      "Tu es un coach en finances personnelles. Tu aides à gérer un budget, épargner et financer un projet ou un gros achat (logement, voiture, voyage) sans se mettre en difficulté.",
-      "pédagogue et prudent, pars toujours des revenus et des charges réels, ne pousse jamais à des placements risqués.",
-      "budgets mensuels, plans d'épargne par objectif, estimations 'dans combien de temps', listes de postes à optimiser.",
+      "Sam",
+      "Tu es formateur/pédagogue tech. Tu réponds aux questions frontales (« c'est quoi une API ? », « comment marche un hébergement ? ») en langage simple, avec des analogies, pour quelqu'un qui découvre le développement.",
+      "patient, imagé, une idée à la fois, vérifie la compréhension. Zéro jargon non défini.",
+      "définitions simples, analogies parlantes, mini-schémas mentaux.",
     ),
   },
 };
+
+// Modèle B : les agents sont transverses. Toute catégorie de projet expose le
+// roster complet — la catégorie sert de contexte (injecté dans le prompt via
+// PROJECT_TYPE_INSTRUCTIONS), pas de filtre.
+const ALL_AGENT_IDS: AgentId[] = ["architect", "pm", "product", "quality", "devops", "teacher"];
 
 export const PROJECT_TYPES: Record<
   ProjectType,
   { id: ProjectType; name: string; icon: string; tagline: string; color: string; bg: string; agentIds: AgentId[] }
 > = {
-  perso: {
-    id: "perso",
-    name: "Projet perso",
-    icon: "sprout",
-    tagline: "Side project, contenu, vie quotidienne, apprentissage et budget perso.",
+  web: {
+    id: "web",
+    name: "Site / app web",
+    icon: "globe",
+    tagline: "Site vitrine, application web, plateforme en ligne.",
+    color: "#0EA5E9",
+    bg: "#E0F2FE",
+    agentIds: ALL_AGENT_IDS,
+  },
+  ai: {
+    id: "ai",
+    name: "Projet IA / agent IA",
+    icon: "sparkles",
+    tagline: "Assistant IA, agent, automatisation intelligente, RAG.",
+    color: "#7C3AED",
+    bg: "#F5F0FF",
+    agentIds: ALL_AGENT_IDS,
+  },
+  script: {
+    id: "script",
+    name: "Script / automatisation",
+    icon: "zap",
+    tagline: "Automatiser une tâche répétitive, un traitement, un flux de données.",
+    color: "#D97706",
+    bg: "#FFFBEB",
+    agentIds: ALL_AGENT_IDS,
+  },
+  mobile: {
+    id: "mobile",
+    name: "Application mobile",
+    icon: "laptop",
+    tagline: "App iOS / Android, publiée sur les stores.",
     color: "#0E9F88",
     bg: "#EDFAF7",
-    agentIds: ["coach", "creative", "daily", "learning", "money"],
+    agentIds: ALL_AGENT_IDS,
   },
-  pro: {
-    id: "pro",
-    name: "Projet pro",
-    icon: "briefcase",
-    tagline: "Business plan, stratégie, lancement produit, levée de fonds, analyse de marché.",
+  api: {
+    id: "api",
+    name: "API / backend / intégration",
+    icon: "server",
+    tagline: "Backend, API, base de données, intégration entre outils.",
     color: "#264573",
     bg: "#EEF2FA",
-    agentIds: ["strategist", "analyst", "finance", "cto", "mentor"],
+    agentIds: ALL_AGENT_IDS,
+  },
+  other: {
+    id: "other",
+    name: "Autre projet tech",
+    icon: "hammer",
+    tagline: "Un projet tech qui n'entre pas dans les autres cases.",
+    color: "#E8396A",
+    bg: "#FEF0F4",
+    agentIds: ALL_AGENT_IDS,
   },
 };
 
