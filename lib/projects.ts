@@ -15,19 +15,37 @@ export interface Stage {
   id: StageId;
   name: string;
   icon: string;
-  minXp: number;
   color: string;
 }
 
-export type StageId = "ideation" | "validation" | "mvp" | "launch" | "traction";
+// Cycle de livraison d'un projet tech. L'étape est un STATUT stocké dans
+// project.stage, réglé manuellement (clic sur le stepper) — elle n'est PLUS
+// dérivée de l'XP. L'avancement affiché se calcule sur les tâches faites.
+export type StageId = "cadrage" | "conception" | "dev" | "recette" | "prod" | "maintenance";
 
 export const STAGES: readonly Stage[] = [
-  { id: "ideation",   name: "Idée",       icon: "lightbulb",  minXp: 0,   color: "#94A3B8" },
-  { id: "validation", name: "Validation", icon: "search",     minXp: 50,  color: "#7C3AED" },
-  { id: "mvp",        name: "MVP",        icon: "hammer",     minXp: 150, color: "#D97706" },
-  { id: "launch",     name: "Lancement",  icon: "rocket",     minXp: 300, color: "#E8396A" },
-  { id: "traction",   name: "Traction",   icon: "trendingUp", minXp: 600, color: "#0E9F88" },
+  { id: "cadrage",     name: "Cadrage",       icon: "target",  color: "#94A3B8" },
+  { id: "conception",  name: "Conception",    icon: "pencil",  color: "#7C3AED" },
+  { id: "dev",         name: "Développement", icon: "code",    color: "#0EA5E9" },
+  { id: "recette",     name: "Recette",       icon: "search",  color: "#D97706" },
+  { id: "prod",        name: "Mise en ligne", icon: "rocket",  color: "#E8396A" },
+  { id: "maintenance", name: "Maintenance",   icon: "refresh", color: "#0E9F88" },
 ];
+
+export const DEFAULT_STAGE: StageId = "cadrage";
+
+// Helpers étape. Tolérants aux valeurs héritées/inconnues (fallback 1re étape)
+// pour ne jamais crasher sur une donnée pré-migration.
+export function stageMeta(stage: string | null | undefined): Stage {
+  return STAGES.find((s) => s.id === stage) ?? STAGES[0];
+}
+export function stageIndex(stage: string | null | undefined): number {
+  const i = STAGES.findIndex((s) => s.id === stage);
+  return i < 0 ? 0 : i;
+}
+export function nextStage(stage: string | null | undefined): Stage | null {
+  return STAGES[stageIndex(stage) + 1] ?? null;
+}
 
 export const XP_RULES = {
   session: 10,
@@ -37,31 +55,12 @@ export const XP_RULES = {
 } as const;
 
 export interface ProjectStats {
+  // XP conservé comme indicateur d'activité (déco), plus lié à l'étape.
   xp: number;
-  stage: Stage;
-  nextStage: Stage | null;
-  progressToNext: number;
   sessionsCount: number;
   deliverablesCount: number;
   tasksDoneCount: number;
   challengerSessionsCount: number;
-}
-
-export function stageFromXp(xp: number): { stage: Stage; nextStage: Stage | null; progressToNext: number } {
-  let current = STAGES[0];
-  let next: Stage | null = STAGES[1] ?? null;
-  for (let i = 0; i < STAGES.length; i++) {
-    if (xp >= STAGES[i].minXp) {
-      current = STAGES[i];
-      next = STAGES[i + 1] ?? null;
-    }
-  }
-  let progressToNext = 100;
-  if (next) {
-    const span = next.minXp - current.minXp;
-    progressToNext = Math.min(100, Math.max(0, Math.round(((xp - current.minXp) / span) * 100)));
-  }
-  return { stage: current, nextStage: next, progressToNext };
 }
 
 interface SessionForStats {
@@ -91,13 +90,8 @@ export function computeStats(
     tasksDoneCount * XP_RULES.taskDone +
     challengerSessionsCount * XP_RULES.challenger;
 
-  const { stage, nextStage, progressToNext } = stageFromXp(xp);
-
   return {
     xp,
-    stage,
-    nextStage,
-    progressToNext,
     sessionsCount: sessions.length,
     deliverablesCount,
     tasksDoneCount,

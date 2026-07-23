@@ -1,30 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { ChatMessage } from "./data";
-import { computeStats, stageFromXp, XP_RULES } from "./projects";
+import { computeStats, nextStage, stageIndex, stageMeta, XP_RULES } from "./projects";
 
-describe("stageFromXp", () => {
-  it("démarre au stade Idée à 0 XP", () => {
-    const r = stageFromXp(0);
-    expect(r.stage.id).toBe("ideation");
-    expect(r.nextStage?.id).toBe("validation");
+describe("stage helpers", () => {
+  it("mappe une étape stockée vers sa méta", () => {
+    expect(stageMeta("dev").name).toBe("Développement");
+    expect(stageIndex("dev")).toBe(2);
+    expect(nextStage("dev")?.id).toBe("recette");
   });
 
-  it("passe au stade supérieur au seuil exact", () => {
-    expect(stageFromXp(50).stage.id).toBe("validation");
-    expect(stageFromXp(150).stage.id).toBe("mvp");
-    expect(stageFromXp(600).stage.id).toBe("traction");
+  it("retombe sur la 1re étape pour une valeur héritée/inconnue", () => {
+    expect(stageMeta("ideation").id).toBe("cadrage");
+    expect(stageIndex("ideation")).toBe(0);
+    expect(stageMeta(null).id).toBe("cadrage");
   });
 
-  it("plafonne au dernier stade sans stade suivant", () => {
-    const r = stageFromXp(10000);
-    expect(r.stage.id).toBe("traction");
-    expect(r.nextStage).toBeNull();
-    expect(r.progressToNext).toBe(100);
-  });
-
-  it("calcule une progression intermédiaire bornée 0–100", () => {
-    // À mi-chemin entre ideation (0) et validation (50).
-    expect(stageFromXp(25).progressToNext).toBe(50);
+  it("n'a pas d'étape suivante après la dernière", () => {
+    expect(nextStage("maintenance")).toBeNull();
   });
 });
 
