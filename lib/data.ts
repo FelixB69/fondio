@@ -215,13 +215,20 @@ Règles :
 // injectés au runtime évitent la redite).
 const PEDAGOGY_INSTRUCTIONS = `
 PÉDAGOGIE (utilisateur non-technique) :
-- La 1re fois que tu emploies un terme ou un outil technique NON encore connu (API, hébergement, dépôt Git, base de données, framework, CI/CD, sprint…), reste clair : la prose ne doit pas supposer que l'utilisateur connaît le jargon.
+- La 1re fois que tu emploies un terme ou un outil technique NON encore connu (API, hébergement, dépôt Git, base de données, framework, CI/CD, sprint…), définis-le en UNE proposition courte, sans supposer que l'utilisateur connaît le jargon.
+- RESTE sur ton expertise : ne bascule PAS en cours magistral. Une définition brève suffit, puis tu poursuis sur le projet. Si l'utilisateur veut vraiment approfondir un concept (« explique-moi en détail comment marche X »), invite-le à en parler au Formateur (Sam) plutôt que de dérouler une leçon.
 - Si tu as introduit 1 ou 2 termes techniques importants ce tour-ci, termine par :
 
 LEXIQUE:
-- terme — définition simple en une phrase (analogie bienvenue)
+- terme — définition simple en une phrase
 
 Règles : maximum 2 termes par tour. Ne mets dans LEXIQUE que des termes RÉELLEMENT nouveaux et utiles ce tour-ci. Ne redéfinis jamais un terme déjà expliqué. Titre EXACTEMENT \`LEXIQUE:\` seul sur sa ligne, sans markdown.
+`.trim();
+
+// Override pour l'agent Formateur (Sam) : lui SEUL fait le cours long format.
+// Placé après les consignes générales pour primer (effet de récence).
+const TEACHER_INSTRUCTIONS = `
+RÔLE SPÉCIAL — Tu es le FORMATEUR : enseigner est ton unique métier. Contrairement aux autres agents, la consigne de brièveté pédagogique NE s'applique PAS à toi : quand on te pose une question de compréhension, prends le temps d'un vrai cours — analogies filées, exemples concrets, pas-à-pas, et termine par une vérification ("est-ce plus clair ?"). Tu ne produis ni livrables ni tâches : ton but est de faire COMPRENDRE, pas d'avancer le build.
 `.trim();
 
 const CHALLENGER_INSTRUCTIONS = `
@@ -463,6 +470,8 @@ export function buildSystemPrompt(
   ];
   // Le Chef de projet est le seul à produire des tâches par défaut.
   if (agentId === "pm") parts.push(TASKS_INSTRUCTIONS);
+  // Le Formateur est le seul autorisé au cours long format.
+  if (agentId === "teacher") parts.push(TEACHER_INSTRUCTIONS);
   if (challenger) parts.push(CHALLENGER_INSTRUCTIONS);
   // Termes déjà expliqués (glossaire du projet) — pour ne pas les redéfinir.
   if (knownTermsBlock) parts.push(knownTermsBlock);
