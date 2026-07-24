@@ -776,15 +776,24 @@ function ConversationOutline({
   segments,
   activeIndex,
   open,
+  filterAgentId,
   onToggle,
   onJump,
+  onFilter,
 }: {
   segments: OutlineSegment[];
   activeIndex: number;
   open: boolean;
+  filterAgentId: AgentId | null;
   onToggle: () => void;
   onJump: (anchorIndex: number) => void;
+  onFilter: (agentId: AgentId | null) => void;
 }) {
+  // Experts distincts (dans l'ordre d'apparition) pour la barre de filtre.
+  const distinctAgents: AgentId[] = [];
+  for (const seg of segments) {
+    if (!distinctAgents.includes(seg.agentId)) distinctAgents.push(seg.agentId);
+  }
   if (!open) {
     return (
       <div
@@ -849,10 +858,56 @@ function ConversationOutline({
           <Icon name="close" size={14} color={C.textMute} />
         </button>
       </div>
+      {distinctAgents.length > 1 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flexWrap: "wrap",
+            padding: "8px 12px",
+            borderBottom: `1px solid ${C.border}`,
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: C.textMute, textTransform: "uppercase", letterSpacing: "0.02em" }}>
+            Filtrer
+          </span>
+          {distinctAgents.map((id) => {
+            const a = AGENTS[id];
+            const on = filterAgentId === id;
+            return (
+              <button
+                key={id}
+                onClick={() => onFilter(on ? null : id)}
+                title={on ? `Afficher tout le monde` : `N'afficher que ${a.firstName}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  border: `1.5px solid ${on ? a.color : C.border}`,
+                  background: on ? a.bg : C.white,
+                  color: on ? a.color : C.textSub,
+                  borderRadius: 100,
+                  padding: "2px 9px 2px 4px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                }}
+              >
+                <AgentAvatar agentId={id} size={18} />
+                {a.firstName}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div style={{ overflowY: "auto", padding: "8px 8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
         {segments.map((seg, i) => {
           const a = AGENTS[seg.agentId];
           const active = seg.anchorIndex === activeIndex;
+          const muted = filterAgentId !== null && seg.agentId !== filterAgentId;
           return (
             <button
               key={`${seg.anchorIndex}-${i}`}
@@ -870,7 +925,8 @@ function ConversationOutline({
                 padding: "7px 9px 7px 8px",
                 cursor: "pointer",
                 fontFamily: "inherit",
-                transition: "background 0.12s",
+                opacity: muted ? 0.4 : 1,
+                transition: "background 0.12s, opacity 0.12s",
               }}
               onMouseEnter={(e) => {
                 if (!active) e.currentTarget.style.background = C.bg;
@@ -1041,6 +1097,10 @@ export function ChatSession({
   const segmentIndicesRef = useRef<number[]>([]);
   const [activeSegIdx, setActiveSegIdx] = useState(-1);
   const [outlineOpen, setOutlineOpen] = useState(true);
+  // Filtre par expert : quand actif, les messages des autres experts (et les
+  // messages utilisateur) sont grisés dans le fil, sans être retirés (le contexte
+  // de la conversation reste lisible).
+  const [filterAgentId, setFilterAgentId] = useState<AgentId | null>(null);
 
   const handleMessagesScroll = useCallback(() => {
     const el = messagesRef.current;
@@ -1080,6 +1140,7 @@ export function ChatSession({
     setCurrentAgentId(agentId);
     setDismissedOrient(new Set());
     setProjectBannerDismissed(false);
+    setFilterAgentId(null);
   }, [sessionId, initialMessages, initialChallenger, agentId]);
 
   // Interroge Ollama + récupère la config réelle des modèles. Local d'abord :
@@ -1671,6 +1732,10 @@ export function ChatSession({
             !!orient &&
             orient.agentId !== currentAgentId &&
             !dismissedOrient.has(i);
+          // Filtre par expert : on grise (sans retirer) tout ce qui n'est pas une
+          // réponse de l'expert filtré, pour relire sa contribution en contexte.
+          const dimmed =
+            filterAgentId !== null && !(m.role === "assistant" && speaker === filterAgentId);
           return (
             <div
               key={i}
@@ -1678,7 +1743,13 @@ export function ChatSession({
                 if (node) segmentRefs.current.set(i, node);
                 else segmentRefs.current.delete(i);
               }}
-              style={{ display: "flex", flexDirection: "column", gap: 10 }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                opacity: dimmed ? 0.35 : 1,
+                transition: "opacity 0.15s",
+              }}
             >
               {showHandoff && <HandoffDivider agentId={speaker} />}
               <MessageBubble
@@ -1736,8 +1807,10 @@ export function ChatSession({
           segments={outlineSegments}
           activeIndex={activeOutlineIdx}
           open={outlineOpen}
+          filterAgentId={filterAgentId}
           onToggle={() => setOutlineOpen((o) => !o)}
           onJump={jumpToSegment}
+          onFilter={setFilterAgentId}
         />
       )}
       </div>
