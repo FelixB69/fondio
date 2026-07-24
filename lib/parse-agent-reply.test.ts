@@ -204,4 +204,9 @@ describe("stripTrailingSections", () => {
     const raw = "Juste du texte en streaming…";
     expect(stripTrailingSections(raw)).toBe(raw);
   });
+
+  it("garde la prose même si une section est placée en tête (streaming)", () => {
+    const raw = "LEXIQUE:\n- API — une porte\n\nUn site est une vitrine.";
+    expect(stripTrailingSections(raw)).toBe("Un site est une vitrine.");
+  });
 });

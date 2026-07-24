@@ -134,13 +134,13 @@ function extractOrient(
   return { agentId, reason, start, end };
 }
 
-// Renvoie le texte AVANT la 1re section structurée (ou tout le texte si aucune).
-// Utilisé pendant le streaming pour n'afficher que la prose : ainsi rien ne
-// « disparaît » quand parseAgentReply retire ces sections au message final.
+// Pendant le streaming, n'affiche que la prose : on retire les blocs de section
+// (LIVRABLES/CHALLENGES/TÂCHES/LEXIQUE/ORIENTER) OÙ QU'ILS SOIENT — y compris en
+// tête, cas où l'ancien « couper avant le 1er titre » vidait tout l'affichage.
+// On délègue au même moteur que le message final pour rester cohérent.
 export function stripTrailingSections(text: string): string {
-  const m = text.match(SECTION_HEADING_LINE);
-  if (!m || m.index === undefined) return text;
-  return text.slice(0, m.index).trimEnd();
+  if (!SECTION_HEADING_LINE.test(text)) return text;
+  return parseAgentReply(text).content;
 }
 
 function stripBulletPrefix(line: string): string {
