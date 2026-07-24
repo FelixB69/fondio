@@ -53,7 +53,7 @@ export async function POST(req: Request) {
 
   const { data: session, error: sessErr } = await supabase
     .from("sessions")
-    .select("id, agent_id, project_type, challenger_mode, messages, title, project_id")
+    .select("id, agent_id, project_type, challenger_mode, messages, title, project_id, guided")
     .eq("id", sessionId)
     .eq("user_id", user.id)
     .single();
@@ -166,6 +166,7 @@ export async function POST(req: Request) {
       session.project_type as ProjectType,
       isFirstReply && firstName ? firstName : undefined,
       knownTermsBlock || undefined,
+      session.guided === true,
     ) + previousContext + webContext + webFormatReminder;
 
   const llmMessages: LLMMessage[] = [
@@ -231,6 +232,16 @@ export async function POST(req: Request) {
       if (parsed.deliverables.length) assistantMsg.deliverables = parsed.deliverables;
       if (parsed.challenges.length) assistantMsg.challenges = parsed.challenges;
       if (webSources.length) assistantMsg.sources = webSources;
+
+      // Mode Accompagné : on estampille l'agent émetteur (pour les séparateurs de
+      // relais) et on remonte la suggestion d'orientation si elle vise un AUTRE
+      // agent que celui en cours.
+      if (session.guided) {
+        assistantMsg.agentId = agent.id;
+        if (parsed.orient && parsed.orient.agentId !== agent.id) {
+          assistantMsg.orient = parsed.orient;
+        }
+      }
 
       // Section TÂCHES → tâches du board (statut todo). Dédupliquées par contenu
       // sur la session pour ne pas recréer les mêmes en cas de régénération.

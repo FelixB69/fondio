@@ -163,6 +163,35 @@ describe("parseAgentReply", () => {
     expect(r.deliverables).toEqual(["A", "B"]);
     expect(r.challenges).toEqual(["C"]);
   });
+
+  it("extrait ORIENTER (prénom) et le retire de la prose", () => {
+    const raw = [
+      "Sur le planning je peux vous aider, mais pour la stack je passe la main.",
+      "",
+      "ORIENTER: Malik — choix de la stack technique",
+    ].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.orient).toEqual({ agentId: "architect", reason: "choix de la stack technique" });
+    expect(r.content).not.toContain("ORIENTER");
+    expect(r.content).toContain("je passe la main.");
+  });
+
+  it("résout ORIENTER par le rôle et tolère la ponctuation", () => {
+    const raw = "Réponse.\n\nORIENTER: Chef de projet — cadrer le périmètre";
+    const r = parseAgentReply(raw);
+    expect(r.orient?.agentId).toBe("pm");
+  });
+
+  it("orient=null quand le prénom n'est pas reconnu", () => {
+    const raw = "Réponse.\n\nORIENTER: Roberto — inconnu au bataillon";
+    const r = parseAgentReply(raw);
+    expect(r.orient).toBeNull();
+  });
+
+  it("orient=null quand aucune section ORIENTER", () => {
+    const r = parseAgentReply("Juste une réponse normale.");
+    expect(r.orient).toBeNull();
+  });
 });
 
 describe("stripTrailingSections", () => {

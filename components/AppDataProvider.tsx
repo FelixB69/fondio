@@ -20,6 +20,8 @@ export interface SessionFull {
   messages: ChatMessage[];
   updated_at: string;
   panel_agent_ids?: string[] | null;
+  // Mode Accompagné : démarré via une description, Clara orchestre les relais.
+  guided?: boolean;
 }
 
 // Vue allégée d'un projet, partagée à toute l'app (header de chat, sidebar,
@@ -51,6 +53,7 @@ interface AppDataContextValue {
     agentIdOrIds: AgentId | AgentId[],
     type: ProjectType,
     projectId?: string | null,
+    opts?: { guided?: boolean },
   ) => Promise<string | null>;
   archiveSession: (id: string) => Promise<void>;
   restoreSession: (id: string) => Promise<void>;
@@ -180,7 +183,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     async (id: string): Promise<SessionFull | null> => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, project_type, project_id, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids")
+        .select("id, project_type, project_id, agent_id, title, challenger_mode, messages, updated_at, panel_agent_ids, guided")
         .eq("id", id)
         .single();
       if (error || !data) return null;
@@ -194,13 +197,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         messages: Array.isArray(data.messages) ? (data.messages as ChatMessage[]) : [],
         updated_at: data.updated_at,
         panel_agent_ids: Array.isArray(data.panel_agent_ids) ? data.panel_agent_ids : null,
+        guided: data.guided === true,
       };
     },
     [supabase],
   );
 
   const startNewSession = useCallback(
-    async (agentIdOrIds: AgentId | AgentId[], type: ProjectType, projectId: string | null = null) => {
+    async (
+      agentIdOrIds: AgentId | AgentId[],
+      type: ProjectType,
+      projectId: string | null = null,
+      opts?: { guided?: boolean },
+    ) => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -219,6 +228,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           challenger_mode: false,
           messages: [],
           panel_agent_ids: isPanel ? agentIdOrIds : null,
+          guided: opts?.guided === true,
         })
         .select("id, project_type, project_id, agent_id, title, updated_at, panel_agent_ids")
         .single();

@@ -79,6 +79,7 @@ export default function ChatPage() {
       projectType={session.project_type}
       projectId={liveProjectId}
       project={project}
+      guided={session.guided}
       initialMessages={session.messages}
       initialChallenger={session.challenger_mode}
       onBack={() => router.push("/home")}

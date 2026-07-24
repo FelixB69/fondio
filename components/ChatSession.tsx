@@ -27,6 +27,9 @@ interface ChatSessionProps {
   projectType: ProjectType;
   projectId?: string | null;
   project?: ProjectLite | null;
+  // Mode Accompagné : barre d'experts toujours visible, relais via ORIENTER,
+  // bandeau de matérialisation du projet. Off = session mono-agent classique.
+  guided?: boolean;
   initialMessages: ChatMessage[];
   initialChallenger: boolean;
   onBack: () => void;
@@ -636,12 +639,180 @@ const MessageBubble = memo(function MessageBubble({
   );
 });
 
+// Séparateur de relais : marque la 1re prise de parole d'un nouvel expert dans
+// le fil continu du mode Accompagné.
+function HandoffDivider({ agentId }: { agentId: AgentId }) {
+  const a = AGENTS[agentId];
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0 2px" }}>
+      <div style={{ flex: 1, height: 1, background: C.border }} />
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 11.5,
+          fontWeight: 700,
+          color: a.color,
+          background: a.bg,
+          border: `1px solid ${a.color}30`,
+          borderRadius: 100,
+          padding: "3px 11px",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <Icon name={a.icon as IconName} size={11} color={a.color} />
+        {a.firstName} rejoint la conversation
+      </span>
+      <div style={{ flex: 1, height: 1, background: C.border }} />
+    </div>
+  );
+}
+
+// Suggestion d'orientation émise par l'agent (section ORIENTER). Bonus
+// opportuniste : si le modèle ne la produit jamais, la barre d'experts reste le
+// moyen principal de changer d'interlocuteur.
+function OrientSuggestion({
+  agentId,
+  reason,
+  onAccept,
+  onDismiss,
+}: {
+  agentId: AgentId;
+  reason: string;
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  const a = AGENTS[agentId];
+  return (
+    <div
+      style={{
+        marginLeft: 38,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap",
+        background: a.bg,
+        border: `1.5px solid ${a.color}40`,
+        borderRadius: 11,
+        padding: "10px 13px",
+      }}
+    >
+      <Icon name="sparkles" size={14} color={a.color} />
+      <span style={{ flex: 1, minWidth: 180, fontSize: 12.5, color: C.text, lineHeight: 1.45 }}>
+        Ce point relève de <strong style={{ color: a.color }}>{a.firstName}</strong> ({a.name})
+        {reason ? ` — ${reason}` : ""}.
+      </span>
+      <button
+        onClick={onAccept}
+        style={{
+          background: a.color,
+          color: "white",
+          border: "none",
+          borderRadius: 8,
+          padding: "7px 13px",
+          fontSize: 12.5,
+          fontWeight: 700,
+          cursor: "pointer",
+          fontFamily: "inherit",
+        }}
+      >
+        Passer à {a.firstName}
+      </button>
+      <button
+        onClick={onDismiss}
+        style={{
+          background: "none",
+          border: "none",
+          color: C.textMute,
+          fontSize: 12.5,
+          fontWeight: 600,
+          cursor: "pointer",
+          fontFamily: "inherit",
+          padding: "7px 4px",
+        }}
+      >
+        Non merci
+      </button>
+    </div>
+  );
+}
+
+// Barre d'experts TOUJOURS visible en mode Accompagné. C'est le vrai levier de
+// changement d'interlocuteur : la feature ne dépend donc pas de la capacité du
+// modèle local à émettre ORIENTER au bon moment (dégradation propre).
+function ExpertBar({
+  currentAgentId,
+  onPick,
+  disabled,
+  isMobile,
+}: {
+  currentAgentId: AgentId;
+  onPick: (id: AgentId) => void;
+  disabled: boolean;
+  isMobile: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        padding: isMobile ? "8px 12px" : "9px 20px",
+        background: C.white,
+        borderBottom: `1px solid ${C.border}`,
+        overflowX: "auto",
+        flexShrink: 0,
+      }}
+    >
+      {!isMobile && (
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: C.textMute, flexShrink: 0, marginRight: 2 }}>
+          Vos experts
+        </span>
+      )}
+      {(Object.keys(AGENTS) as AgentId[]).map((id) => {
+        const a = AGENTS[id];
+        const active = id === currentAgentId;
+        return (
+          <button
+            key={id}
+            onClick={() => onPick(id)}
+            disabled={disabled || active}
+            title={`${a.name} — ${a.desc}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              flexShrink: 0,
+              background: active ? a.bg : C.white,
+              color: active ? a.color : C.textSub,
+              border: `1.5px solid ${active ? a.color : C.border}`,
+              borderRadius: 100,
+              padding: "5px 11px",
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "inherit",
+              cursor: disabled || active ? "default" : "pointer",
+              opacity: disabled && !active ? 0.5 : 1,
+              transition: "all 0.15s",
+            }}
+          >
+            <Icon name={a.icon as IconName} size={12} color={active ? a.color : C.textMute} />
+            {a.firstName}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ChatSession({
   sessionId,
   agentId,
   projectType,
   projectId,
   project = null,
+  guided = false,
   initialMessages,
   initialChallenger,
   onBack,
@@ -650,10 +821,17 @@ export function ChatSession({
 }: ChatSessionProps) {
   const isMobile = useIsMobile();
   const supabase = createClient();
-  const agent = AGENTS[agentId];
+  // Mode Accompagné : l'agent « lead » peut changer en cours de route (relais).
+  // On garde donc l'agent courant en état local, initialisé sur celui de la session.
+  const [currentAgentId, setCurrentAgentId] = useState<AgentId>(agentId);
+  const agent = AGENTS[currentAgentId];
   const typeMeta = PROJECT_TYPES[projectType] ?? PROJECT_TYPES.other;
 
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  // Suggestions d'orientation refusées (index de message) — ne pas re-proposer.
+  const [dismissedOrient, setDismissedOrient] = useState<Set<number>>(new Set());
+  // Bandeau « créer le projet » masqué manuellement pour cette session.
+  const [projectBannerDismissed, setProjectBannerDismissed] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
@@ -691,7 +869,10 @@ export function ChatSession({
   useEffect(() => {
     setMessages(initialMessages);
     setChallenger(initialChallenger);
-  }, [sessionId, initialMessages, initialChallenger]);
+    setCurrentAgentId(agentId);
+    setDismissedOrient(new Set());
+    setProjectBannerDismissed(false);
+  }, [sessionId, initialMessages, initialChallenger, agentId]);
 
   // Interroge Ollama + récupère la config réelle des modèles. Local d'abord :
   // si Ollama répond, on bascule sur local (objectif confidentialité). Réutilisé
@@ -756,10 +937,22 @@ export function ChatSession({
         project_id: sess?.project_id ?? null,
         content: text,
         status: "todo",
-        source_agent_id: agentId,
+        source_agent_id: currentAgentId,
       });
     },
-    [agentId, sessionId, supabase, taskedItems],
+    [currentAgentId, sessionId, supabase, taskedItems],
+  );
+
+  // Relais d'expert : bascule l'agent lead (barre d'experts ou acceptation d'une
+  // suggestion ORIENTER). On persiste agent_id ; le prochain tour répondra avec
+  // le nouvel agent, et son message portera son agentId (séparateur de relais).
+  const switchAgent = useCallback(
+    async (id: AgentId) => {
+      if (id === currentAgentId || loading) return;
+      setCurrentAgentId(id);
+      await supabase.from("sessions").update({ agent_id: id }).eq("id", sessionId);
+    },
+    [currentAgentId, loading, sessionId, supabase],
   );
 
   const toggleChallenger = useCallback(async () => {
@@ -843,9 +1036,12 @@ export function ChatSession({
     [onTitleChange],
   );
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || loading) return;
-    const trimmed = input.trim();
+  // Cœur d'envoi, extrait pour être réutilisé par le message d'amorce du mode
+  // Accompagné (la description saisie à la création) — pas seulement par la zone
+  // de saisie.
+  const sendMessage = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || loading) return;
     setInput("");
     setError(null);
     if (taRef.current) taRef.current.style.height = "auto";
@@ -907,7 +1103,27 @@ export function ChatSession({
       setLoading(false);
       abortRef.current = null;
     }
-  }, [input, loading, sessionId, preferredProvider, webSearch, consumeStream]);
+  }, [loading, sessionId, preferredProvider, webSearch, consumeStream]);
+
+  const handleSend = useCallback(() => {
+    void sendMessage(input);
+  }, [input, sendMessage]);
+
+  // Mode Accompagné : la description saisie à la création est déposée en
+  // sessionStorage par l'écran d'entrée (évite de la faire transiter par l'URL).
+  // On l'envoie automatiquement au 1er rendu d'une session encore vide, pour que
+  // Clara démarre sur le contexte du projet sans que l'utilisateur re-saisisse.
+  const kickedRef = useRef(false);
+  useEffect(() => {
+    if (!guided || kickedRef.current || initialMessages.length > 0) return;
+    if (typeof window === "undefined") return;
+    const key = `fnd_kickoff_${sessionId}`;
+    const text = window.sessionStorage.getItem(key);
+    if (!text) return;
+    kickedRef.current = true;
+    window.sessionStorage.removeItem(key);
+    void sendMessage(text);
+  }, [guided, sessionId, initialMessages, sendMessage]);
 
   // Régénère la dernière réponse de l'agent : on retire la (les) bulle(s)
   // assistant en bout de fil, puis on rejoue le dernier message utilisateur.
@@ -976,6 +1192,14 @@ export function ChatSession({
     : null;
   const displayMessages = inflight ? [...messages, inflight] : messages;
 
+  // Matérialisation du projet : en mode Accompagné, on ne crée AUCUN projet au
+  // démarrage (une description vague donnerait un projet fantôme mal nommé). On
+  // le propose seulement quand le cadrage a produit de la matière — ici, 2
+  // réponses d'agent — et jamais si la session est déjà rattachée.
+  const assistantTurns = messages.filter((m) => m.role === "assistant").length;
+  const showProjectBanner =
+    guided && !projectId && !projectBannerDismissed && !!onLinkProject && assistantTurns >= 2;
+
   // Modèles réellement en service (selon le choix local/cloud et la dispo Ollama),
   // pour un pied de page honnête au lieu d'un « Llama3 » codé en dur.
   const useLocal = preferredProvider === "local" && (modelStatus?.available ?? false);
@@ -1016,7 +1240,7 @@ export function ChatSession({
           <Icon name="arrowLeft" size={16} color={C.textSub} />
         </button>
 
-        <AgentAvatar agentId={agentId} size={isMobile ? 28 : 34} />
+        <AgentAvatar agentId={currentAgentId} size={isMobile ? 28 : 34} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: isMobile ? 13 : 14.5, fontWeight: 800, color: C.text, letterSpacing: "-0.02em" }}>
             {agent.firstName}
@@ -1158,6 +1382,16 @@ export function ChatSession({
         />
       </div>
 
+      {/* Mode Accompagné : barre d'experts toujours accessible. */}
+      {guided && (
+        <ExpertBar
+          currentAgentId={currentAgentId}
+          onPick={(id) => void switchAgent(id)}
+          disabled={loading}
+          isMobile={isMobile}
+        />
+      )}
+
       {/* Messages */}
       <div
         ref={messagesRef}
@@ -1193,19 +1427,53 @@ export function ChatSession({
           // quand rien n'est en cours (pas pendant le streaming ni l'enrichissement).
           const isLastFinal =
             !inflight && !loading && i === displayMessages.length - 1 && m.role === "assistant";
+          // Chaque réponse est rendue par SON auteur (mode Accompagné : l'agent
+          // change au fil des relais). Repli sur l'agent courant pour les anciens
+          // messages non estampillés.
+          const speaker =
+            m.role === "assistant" && m.agentId && m.agentId !== "__synthesis__"
+              ? (m.agentId as AgentId)
+              : currentAgentId;
+          // Séparateur de relais : première prise de parole d'un nouvel expert.
+          const prevSpeaker = displayMessages
+            .slice(0, i)
+            .reverse()
+            .find((p) => p.role === "assistant" && p.agentId && p.agentId !== "__synthesis__")
+            ?.agentId as AgentId | undefined;
+          const showHandoff =
+            guided && m.role === "assistant" && !!m.agentId && !!prevSpeaker && prevSpeaker !== speaker;
+          // Suggestion d'orientation : uniquement sur la dernière réponse, si elle
+          // vise un autre agent que l'actuel et n'a pas été refusée.
+          const orient = m.orient;
+          const showOrient =
+            guided &&
+            isLastFinal &&
+            !!orient &&
+            orient.agentId !== currentAgentId &&
+            !dismissedOrient.has(i);
           return (
-            <MessageBubble
-              key={i}
-              msg={m}
-              agentId={agentId}
-              onConvertToTask={convertToTask}
-              taskedItems={taskedItems}
-              artifactsLoading={
-                loadingArtifacts && i === displayMessages.length - 1 && m.role === "assistant"
-              }
-              showActions={isLastFinal}
-              onRegenerate={isLastFinal ? handleRegenerate : undefined}
-            />
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {showHandoff && <HandoffDivider agentId={speaker} />}
+              <MessageBubble
+                msg={m}
+                agentId={speaker}
+                onConvertToTask={convertToTask}
+                taskedItems={taskedItems}
+                artifactsLoading={
+                  loadingArtifacts && i === displayMessages.length - 1 && m.role === "assistant"
+                }
+                showActions={isLastFinal}
+                onRegenerate={isLastFinal ? handleRegenerate : undefined}
+              />
+              {showOrient && orient && (
+                <OrientSuggestion
+                  agentId={orient.agentId}
+                  reason={orient.reason}
+                  onAccept={() => void switchAgent(orient.agentId)}
+                  onDismiss={() => setDismissedOrient((p) => new Set(p).add(i))}
+                />
+              )}
+            </div>
           );
         })}
         {/* Annonce du provider cloud AVANT le 1er token. Une fois le texte qui
@@ -1229,12 +1497,62 @@ export function ChatSession({
           // Si la recherche web est active et que le modèle n'a pas commencé,
           // on est dans l'étape de recherche : on l'annonce. Sinon, points classiques.
           (webSearch && !streamingProvider ? (
-            <WebSearchingIndicator agentId={agentId} />
+            <WebSearchingIndicator agentId={currentAgentId} />
           ) : (
-            <TypingDots agentId={agentId} />
+            <TypingDots agentId={currentAgentId} />
           ))}
         <div />
       </div>
+
+      {showProjectBanner && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            padding: isMobile ? "10px 12px" : "10px 20px",
+            background: C.navyLight,
+            borderTop: `1px solid ${C.border}`,
+          }}
+        >
+          <Icon name="target" size={14} color={C.navy} />
+          <span style={{ flex: 1, minWidth: 180, fontSize: 12.5, color: C.text, lineHeight: 1.45 }}>
+            Votre projet se dessine. Le créer pour suivre votre progression par paliers ?
+          </span>
+          <button
+            onClick={onLinkProject}
+            style={{
+              background: C.navy,
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              padding: "7px 13px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Créer le projet
+          </button>
+          <button
+            onClick={() => setProjectBannerDismissed(true)}
+            style={{
+              background: "none",
+              border: "none",
+              color: C.textMute,
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              padding: "7px 4px",
+            }}
+          >
+            Plus tard
+          </button>
+        </div>
+      )}
 
       {error && (
         <div

@@ -56,8 +56,12 @@ export interface ChatMessage {
   artifacts?: Artifact[];
   ts: string;
   // Panel multi-agent : identifie quel agent a émis ce message.
-  // "__synthesis__" pour le message de synthèse final.
+  // "__synthesis__" pour le message de synthèse final. En mode Accompagné, chaque
+  // réponse porte aussi l'agent qui l'a émise (pour les séparateurs de relais).
   agentId?: AgentId | "__synthesis__";
+  // Mode Accompagné : suggestion de passer la main à un confrère mieux placé,
+  // émise via la section `ORIENTER:` (bonus opportuniste, cf. buildOrientInstructions).
+  orient?: { agentId: AgentId; reason: string };
   // Indique quel provider LLM a généré la réponse : Ollama local, Mistral cloud
   // Fondio, ou la clé perso de l'utilisateur (BYOK).
   provider?: "local" | "cloud" | "byok";
@@ -230,6 +234,31 @@ Règles : maximum 2 termes par tour. Ne mets dans LEXIQUE que des termes RÉELLE
 const TEACHER_INSTRUCTIONS = `
 RÔLE SPÉCIAL — Tu es le FORMATEUR : enseigner est ton unique métier. Contrairement aux autres agents, la consigne de brièveté pédagogique NE s'applique PAS à toi : quand on te pose une question de compréhension, prends le temps d'un vrai cours — analogies filées, exemples concrets, pas-à-pas, et termine par une vérification ("est-ce plus clair ?"). Tu ne produis ni livrables ni tâches : ton but est de faire COMPRENDRE, pas d'avancer le build.
 `.trim();
+
+// Volet ORIENTATION — mode Accompagné uniquement. L'agent courant peut proposer
+// de passer la main à un confrère mieux placé quand le sujet sort franchement de
+// son périmètre. C'est un BONUS opportuniste : le vrai levier de changement
+// d'expert reste la barre toujours visible dans l'UI. On ne force donc rien —
+// une seule suggestion, et seulement quand c'est vraiment pertinent.
+function buildOrientInstructions(currentAgentId: AgentId): string {
+  const others = ALL_AGENT_IDS.filter((id) => id !== currentAgentId)
+    .map((id) => `- ${AGENTS[id].firstName} (${AGENTS[id].name}) : ${AGENTS[id].desc}`)
+    .join("\n");
+  return `
+ORIENTATION (accompagnement multi-experts) — Vous faites partie d'une équipe. Les autres experts disponibles :
+${others}
+
+Si, et SEULEMENT si, la demande relève clairement du métier d'un de ces confrères plutôt que du vôtre, proposez de passer la main en ajoutant en TOUTE FIN, sur sa propre ligne :
+
+ORIENTER: <Prénom du confrère> — raison courte (5 à 8 mots)
+
+Règles :
+- Une seule ligne ORIENTER par réponse, au maximum. La plupart du temps, il n'y en a aucune.
+- Ne l'écrivez PAS si le sujet est dans votre périmètre : répondez vous-même.
+- Ne vous orientez jamais vers vous-même.
+- Titre EXACTEMENT \`ORIENTER:\` suivi du prénom, seul sur sa ligne, sans markdown (pas de **, #).
+`.trim();
+}
 
 const CHALLENGER_INSTRUCTIONS = `
 Mode Challenger ACTIVÉ : ajoute en plus à la fin :
@@ -463,6 +492,7 @@ export function buildSystemPrompt(
   projectType: ProjectType,
   greetingFirstName?: string,
   knownTermsBlock?: string,
+  guided?: boolean,
 ): string {
   const parts: string[] = [
     AGENTS[agentId].systemPrompt,
@@ -472,6 +502,8 @@ export function buildSystemPrompt(
   if (agentId === "pm") parts.push(TASKS_INSTRUCTIONS);
   // Le Formateur est le seul autorisé au cours long format.
   if (agentId === "teacher") parts.push(TEACHER_INSTRUCTIONS);
+  // Mode Accompagné : l'agent peut proposer un relais vers un confrère.
+  if (guided) parts.push(buildOrientInstructions(agentId));
   if (challenger) parts.push(CHALLENGER_INSTRUCTIONS);
   // Termes déjà expliqués (glossaire du projet) — pour ne pas les redéfinir.
   if (knownTermsBlock) parts.push(knownTermsBlock);

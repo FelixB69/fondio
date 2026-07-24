@@ -12,6 +12,8 @@
 //
 // Si rien ne matche, le texte brut devient `content` (fallback gracieux).
 
+import { AGENTS, type AgentId } from "@/lib/data";
+
 // Une entrée de lexique : un terme technique et sa définition simple.
 export interface LexiconEntry {
   term: string;
@@ -28,6 +30,28 @@ export interface ParsedReply {
   // Termes techniques expliqués via la section `LEXIQUE:`. Alimentent le
   // glossaire persistant du projet.
   lexicon: LexiconEntry[];
+  // Mode Accompagné : relais suggéré vers un confrère via la section `ORIENTER:`.
+  // null si aucune suggestion (ou prénom non reconnu).
+  orient: { agentId: AgentId; reason: string } | null;
+}
+
+// Résout le jeton écrit après ORIENTER: (prénom, rôle, ou slug) en AgentId.
+// Tolérant : les modèles écrivent « Malik », « Malik, » ou « Architecte ».
+function resolveAgentToken(token: string): AgentId | null {
+  const t = token.toLowerCase().replace(/[.,;:!?]+$/, "").trim();
+  if (!t) return null;
+  const ids = Object.keys(AGENTS) as AgentId[];
+  for (const id of ids) {
+    const a = AGENTS[id];
+    if (id.toLowerCase() === t || a.firstName.toLowerCase() === t || a.name.toLowerCase() === t) {
+      return id;
+    }
+  }
+  // Repli : le jeton COMMENCE par un prénom connu (« Malik pour l'archi »).
+  for (const id of ids) {
+    if (t.startsWith(AGENTS[id].firstName.toLowerCase())) return id;
+  }
+  return null;
 }
 
 // Motifs de titres de section. `TÂCHES` peut arriver sans accent ("TACHES").
@@ -35,6 +59,7 @@ const LABEL_LIVRABLES = "LIVRABLES";
 const LABEL_CHALLENGES = "CHALLENGES";
 const LABEL_TACHES = "T[ÂA]CHES";
 const LABEL_LEXIQUE = "LEXIQUE";
+const LABEL_ORIENTER = "ORIENTER";
 
 // Sépare "terme — définition" (ou "terme : définition", "terme - définition").
 // On coupe au PREMIER séparateur suivi d'un espace, pour ne pas casser un terme
@@ -71,9 +96,43 @@ function buildStopRegex(otherLabels: string[]): RegExp {
 // sur sa ligne, modulo décorations markdown (`**`, `##`…) — exactement la même
 // tolérance que le parseur final. Sert à couper la prose au bon endroit.
 const SECTION_HEADING_LINE = new RegExp(
-  `^${DECO}*(?:${LABEL_LIVRABLES}|${LABEL_CHALLENGES}|${LABEL_TACHES}|${LABEL_LEXIQUE})${DECO}*:?${DECO}*$`,
+  `^${DECO}*(?:(?:${LABEL_LIVRABLES}|${LABEL_CHALLENGES}|${LABEL_TACHES}|${LABEL_LEXIQUE})${DECO}*:?${DECO}*$|${LABEL_ORIENTER}${DECO}*:)`,
   "im",
 );
+
+// ORIENTER: <agent> — raison. Contrairement aux autres sections, c'est UNE ligne
+// (pas une liste de puces), donc on l'extrait à part. Renvoie aussi le span à
+// retirer de la prose affichée.
+function extractOrient(
+  raw: string,
+): { agentId: AgentId; reason: string; start: number; end: number } | null {
+  const headingRe = new RegExp(`^${DECO}*${LABEL_ORIENTER}${DECO}*:?[^\\S\\n]*`, "im");
+  const m = raw.match(headingRe);
+  if (!m || m.index === undefined) return null;
+  const start = m.index;
+  const afterHeading = start + m[0].length;
+  // Charge utile = reste de la ligne du titre.
+  const restOfLine = raw.slice(afterHeading);
+  const nl = restOfLine.indexOf("\n");
+  let payload = (nl === -1 ? restOfLine : restOfLine.slice(0, nl)).trim();
+  let end = nl === -1 ? raw.length : afterHeading + nl;
+  // Titre seul sur sa ligne → la charge utile est sur la ligne suivante.
+  if (!payload) {
+    const rest2 = raw.slice(end).replace(/^\n+/, "");
+    const consumed = raw.length - rest2.length; // début de rest2 dans raw
+    const nl2 = rest2.indexOf("\n");
+    payload = stripBulletPrefix(nl2 === -1 ? rest2 : rest2.slice(0, nl2)).trim();
+    end = nl2 === -1 ? raw.length : consumed + nl2;
+  }
+  if (!payload) return null;
+  // "<agent> — raison" : on coupe au 1er séparateur suivi d'un espace.
+  const sep = payload.match(/^(.+?)\s*[—–:-]\s+(.+)$/);
+  const token = (sep ? sep[1] : payload).replace(/[*`]/g, "").trim();
+  const reason = (sep ? sep[2] : "").replace(/[*`]/g, "").trim();
+  const agentId = resolveAgentToken(token);
+  if (!agentId) return null;
+  return { agentId, reason, start, end };
+}
 
 // Renvoie le texte AVANT la 1re section structurée (ou tout le texte si aucune).
 // Utilisé pendant le streaming pour n'afficher que la prose : ainsi rien ne
@@ -105,6 +164,7 @@ export function parseAgentReply(raw: string): ParsedReply {
           challenges: Array.isArray(parsed.challenges) ? parsed.challenges : [],
           tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
           lexicon: [],
+          orient: null,
         };
       }
     } catch {
@@ -152,15 +212,16 @@ export function parseAgentReply(raw: string): ParsedReply {
     return { items, start, end };
   };
 
-  const liv = extractSection(LABEL_LIVRABLES, [LABEL_CHALLENGES, LABEL_TACHES, LABEL_LEXIQUE]);
-  const cha = extractSection(LABEL_CHALLENGES, [LABEL_LIVRABLES, LABEL_TACHES, LABEL_LEXIQUE]);
-  const tac = extractSection(LABEL_TACHES, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_LEXIQUE]);
-  const lex = extractSection(LABEL_LEXIQUE, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_TACHES]);
+  const liv = extractSection(LABEL_LIVRABLES, [LABEL_CHALLENGES, LABEL_TACHES, LABEL_LEXIQUE, LABEL_ORIENTER]);
+  const cha = extractSection(LABEL_CHALLENGES, [LABEL_LIVRABLES, LABEL_TACHES, LABEL_LEXIQUE, LABEL_ORIENTER]);
+  const tac = extractSection(LABEL_TACHES, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_LEXIQUE, LABEL_ORIENTER]);
+  const lex = extractSection(LABEL_LEXIQUE, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_TACHES, LABEL_ORIENTER]);
+  const orient = extractOrient(raw);
 
   // On retire chaque bloc de section du texte affiché, où qu'il soit placé
   // (certains modèles mettent LEXIQUE en TÊTE). Le contenu = la prose restante.
-  const spans = [liv, cha, tac, lex]
-    .filter((s) => s.start >= 0)
+  const spans = [liv, cha, tac, lex, orient ? { start: orient.start, end: orient.end } : null]
+    .filter((s): s is { start: number; end: number } => !!s && s.start >= 0)
     .sort((a, b) => a.start - b.start);
   let content = "";
   let cursor = 0;
@@ -178,5 +239,6 @@ export function parseAgentReply(raw: string): ParsedReply {
     challenges: cha.items,
     tasks: tac.items,
     lexicon: parseLexiconItems(lex.items),
+    orient: orient ? { agentId: orient.agentId, reason: orient.reason } : null,
   };
 }
