@@ -429,12 +429,55 @@ function AgentReplyBubble({
             />
           )}
           <DeliverablesBlock
-            label="⚡ Questions difficiles"
+            label="Questions difficiles"
             icon="zap"
             items={msg.challenges ?? []}
             color="#D97706"
             bg="#FFFBEB"
           />
+          <DeliverablesBlock
+            label="Tâches ajoutées au projet"
+            icon="tasks"
+            items={msg.tasks ?? []}
+            color="#264573"
+            bg="#EEF2FA"
+          />
+          {msg.lexicon && msg.lexicon.length > 0 && (
+            <div
+              style={{
+                marginTop: 10,
+                background: "#F8FAFC",
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                padding: "9px 12px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  color: C.textSub,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  marginBottom: 6,
+                }}
+              >
+                <Icon name="book" size={11} color={C.textSub} />
+                Termes expliqués
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {msg.lexicon.map((e, i) => (
+                  <div key={i} style={{ fontSize: 12.5, color: C.text, lineHeight: 1.45 }}>
+                    <span style={{ fontWeight: 700 }}>{e.term}</span>
+                    <span style={{ color: C.textSub }}> — {e.definition}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <SourcesBlock sources={msg.sources} />
         </div>
       </div>

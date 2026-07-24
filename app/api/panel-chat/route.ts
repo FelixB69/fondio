@@ -8,6 +8,7 @@ import {
   type ProjectType,
 } from "@/lib/data";
 import { generateArtifacts } from "@/lib/artifacts";
+import { buildKnownTermsInstruction, mergeGlossary, type GlossaryEntry } from "@/lib/glossary";
 import { callChatModelStream, type LLMMessage } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
 
   const { data: session, error: sessErr } = await supabase
     .from("sessions")
-    .select("id, project_type, challenger_mode, messages, title, panel_agent_ids")
+    .select("id, project_type, challenger_mode, messages, title, panel_agent_ids, project_id")
     .eq("id", sessionId)
     .eq("user_id", user.id)
     .single();
@@ -73,6 +74,27 @@ export async function POST(req: Request) {
   );
   if (panelIds.length < 2) {
     return NextResponse.json({ error: "Cette session n'est pas un panel valide." }, { status: 400 });
+  }
+
+  // Glossaire du projet (termes déjà expliqués) : injecté dans chaque prompt et
+  // enrichi des nouveaux termes de ce tour. Idem chat simple.
+  let glossary: GlossaryEntry[] = [];
+  if (session.project_id) {
+    const { data: proj } = await supabase
+      .from("projects")
+      .select("glossary")
+      .eq("id", session.project_id)
+      .single();
+    glossary = Array.isArray(proj?.glossary) ? (proj!.glossary as GlossaryEntry[]) : [];
+  }
+  const initialGlossaryLen = glossary.length;
+  const knownTermsBlock = buildKnownTermsInstruction(glossary);
+
+  // Contenus de tâches déjà présents (anti-doublon pour les TÂCHES du Chef de projet).
+  const existingTaskContents = new Set<string>();
+  {
+    const { data } = await supabase.from("tasks").select("content").eq("session_id", sessionId);
+    for (const t of data ?? []) existingTaskContents.add((t as { content: string }).content);
   }
 
   const projectType = session.project_type as ProjectType;
@@ -149,7 +171,8 @@ export async function POST(req: Request) {
               isFirstReply && firstName ? firstName : undefined,
             ) +
             webContext +
-            webFormatReminder;
+            webFormatReminder +
+            (knownTermsBlock ? "\n\n" + knownTermsBlock : "");
 
           const { provider, providerLabel, data: textStream } = await callChatModelStream(
             [{ role: "system", content: systemPrompt }, ...userTurns],
@@ -177,6 +200,36 @@ export async function POST(req: Request) {
           if (parsed.challenges.length) agentMsg.challenges = parsed.challenges;
           if (webSources.length) agentMsg.sources = webSources;
 
+          // TÂCHES → board (Chef de projet seulement), dédupliquées.
+          if (agentId === "pm" && parsed.tasks.length) {
+            const fresh = parsed.tasks.filter((t) => !existingTaskContents.has(t));
+            if (fresh.length) {
+              const { error: taskErr } = await supabase.from("tasks").insert(
+                fresh.map((content) => ({
+                  user_id: user.id,
+                  session_id: sessionId,
+                  project_id: session.project_id ?? null,
+                  content,
+                  status: "todo",
+                  source_agent_id: agentId,
+                })),
+              );
+              if (!taskErr) {
+                agentMsg.tasks = fresh;
+                for (const c of fresh) existingTaskContents.add(c);
+              }
+            }
+          }
+
+          // LEXIQUE → affiché sur le message + fusionné dans le glossaire du projet.
+          if (parsed.lexicon.length) {
+            agentMsg.lexicon = parsed.lexicon;
+            glossary = mergeGlossary(glossary, parsed.lexicon, {
+              session_id: sessionId,
+              ts: new Date().toISOString(),
+            });
+          }
+
           send({ t: "agent-done", agentId, message: agentMsg });
 
           // 2e passe artefacts (livrables → tableaux/documents).
@@ -195,6 +248,14 @@ export async function POST(req: Request) {
 
           agentMsgs.push(agentMsg);
           previousReplies.push({ agentId, content: parsed.content });
+        }
+
+        // Persiste le glossaire enrichi (une fois, si de nouveaux termes sont apparus).
+        if (session.project_id && glossary.length !== initialGlossaryLen) {
+          await supabase
+            .from("projects")
+            .update({ glossary })
+            .eq("id", session.project_id);
         }
 
         // ── Synthèse ────────────────────────────────────────────────────────
