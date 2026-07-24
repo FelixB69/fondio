@@ -230,7 +230,7 @@ export function LandingScreen({
           Un agent pour chaque besoin
         </h2>
         <p style={{ margin: "0 0 28px", color: C.textSub, fontSize: 14, textAlign: "center" }}>
-          4 conseillers pro, 5 conseillers perso, chacun avec son propre angle d'expertise.
+          6 conseillers spécialisés, chacun avec son propre angle d'expertise, disponibles pour tous vos projets.
         </p>
         <div
           style={{

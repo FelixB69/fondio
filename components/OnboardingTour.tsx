@@ -14,7 +14,7 @@ const STEPS: { icon: IconName; title: string; desc: string }[] = [
   {
     icon: "sparkles",
     title: "2. Sélectionnez un agent",
-    desc: "Architecte, chef de projet, UX, debug, déploiement, formateur... chaque agent a son propre angle d'expertise. Vous pouvez aussi en réunir plusieurs en panel.",
+    desc: "Malik pour la technique, Clara pour le pilotage, Jade pour vos utilisateurs, Sam pour tout vous expliquer... six conseillers, chacun avec son angle. Vous pouvez aussi en réunir plusieurs en panel.",
   },
   {
     icon: "msgSquare",
