@@ -1469,6 +1469,13 @@ export function ChatSession({
   const showOutline = !isMobile && outlineSegments.length > 1;
   const activeOutlineIdx =
     activeSegIdx >= 0 ? activeSegIdx : outlineSegments[outlineSegments.length - 1]?.anchorIndex ?? -1;
+  // En-tête collant (mobile) : pastille de l'expert du segment lu, affichée
+  // seulement quand on a remonté hors du dernier segment (là où l'en-tête
+  // principal indique déjà l'agent courant). Sur desktop, le sommaire suffit.
+  const lastSegAnchor = outlineSegments[outlineSegments.length - 1]?.anchorIndex ?? -1;
+  const activeSeg = outlineSegments.find((s) => s.anchorIndex === activeOutlineIdx);
+  const showStickyLabel =
+    isMobile && outlineSegments.length > 1 && !!activeSeg && activeOutlineIdx !== lastSegAnchor;
 
   // Matérialisation du projet : en mode Accompagné, on ne crée AUCUN projet au
   // démarrage (une description vague donnerait un projet fantôme mal nommé). On
@@ -1671,7 +1678,37 @@ export function ChatSession({
       )}
 
       {/* Zone messages + sommaire des relais (panneau latéral repliable) */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden", position: "relative" }}>
+      {showStickyLabel && activeSeg && (
+        <button
+          onClick={() => jumpToSegment(lastSegAnchor)}
+          title="Revenir au bas de la conversation"
+          style={{
+            position: "absolute",
+            top: 10,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 5,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            background: C.white,
+            border: `1.5px solid ${AGENTS[activeSeg.agentId].color}40`,
+            boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+            borderRadius: 100,
+            padding: "4px 12px 4px 5px",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            fontSize: 12,
+            fontWeight: 700,
+            color: AGENTS[activeSeg.agentId].color,
+          }}
+        >
+          <AgentAvatar agentId={activeSeg.agentId} size={20} />
+          Vous lisez {AGENTS[activeSeg.agentId].firstName}
+          <Icon name="chevDown" size={13} color={AGENTS[activeSeg.agentId].color} />
+        </button>
+      )}
       {/* Messages */}
       <div
         ref={messagesRef}
