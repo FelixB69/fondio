@@ -523,6 +523,24 @@ export function Sidebar({
   const isMobile = useIsMobile();
   const [showArchives, setShowArchives] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Filtre par agent de la liste de sessions : retrouver rapidement « mes
+  // conversations avec Clara ». Une session panel compte pour chacun de ses agents.
+  const [filterAgent, setFilterAgent] = useState<AgentId | null>(null);
+
+  // Agents distincts présents dans les sessions (dans l'ordre d'apparition), pour
+  // n'exposer le filtre que quand il sert (au moins 2 interlocuteurs différents).
+  const sessionAgents = (s: SessionListItem): AgentId[] =>
+    Array.isArray(s.panel_agent_ids) && s.panel_agent_ids.length > 1
+      ? (s.panel_agent_ids as AgentId[])
+      : [s.agent_id];
+  const distinctSessionAgents: AgentId[] = [];
+  for (const s of sessions) {
+    for (const id of sessionAgents(s)) {
+      if (AGENTS[id] && !distinctSessionAgents.includes(id)) distinctSessionAgents.push(id);
+    }
+  }
+  const visibleSessions =
+    filterAgent === null ? sessions : sessions.filter((s) => sessionAgents(s).includes(filterAgent));
 
   const newBtnBase: CSSProperties = {
     width: "100%",
@@ -645,12 +663,61 @@ export function Sidebar({
         >
           Historique
         </div>
+        {distinctSessionAgents.length > 1 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "0 4px 8px" }}>
+            {distinctSessionAgents.map((id) => {
+              const a = AGENTS[id];
+              const on = filterAgent === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setFilterAgent(on ? null : id)}
+                  title={on ? "Afficher toutes les sessions" : `Sessions avec ${a.firstName}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    border: `1.5px solid ${on ? a.color : C.border}`,
+                    background: on ? a.bg : C.white,
+                    color: on ? a.color : C.textSub,
+                    borderRadius: 100,
+                    padding: "1px 8px 1px 3px",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: 5,
+                      background: a.bg,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Icon name={(a.icon ?? "sparkles") as IconName} size={9} color={a.color} />
+                  </span>
+                  {a.firstName}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {sessions.length === 0 && (
           <div style={{ padding: "8px 8px", fontSize: 12, color: C.textMute, lineHeight: 1.5 }}>
             Pas encore de session. Démarrez-en une depuis le bouton ci-dessus.
           </div>
         )}
-        {sessions.map((s) => (
+        {sessions.length > 0 && visibleSessions.length === 0 && (
+          <div style={{ padding: "8px 8px", fontSize: 12, color: C.textMute, lineHeight: 1.5 }}>
+            Aucune session avec cet expert.
+          </div>
+        )}
+        {visibleSessions.map((s) => (
           <SessionRow
             key={s.id}
             s={s}
