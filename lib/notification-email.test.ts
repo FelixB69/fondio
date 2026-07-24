@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEmailBody, buildEmailSubject, sortByUrgency, EmailNotificationTask } from "./notification-email";
+import { buildEmailBody, buildEmailHtml, buildEmailSubject, sortByUrgency, EmailNotificationTask } from "./notification-email";
 
 const overdue: EmailNotificationTask = { content: "Relancer le client X", due_date: "2026-06-24", urgency: "overdue" };
 const today: EmailNotificationTask = { content: "Préparer le pitch deck", due_date: "2026-06-26", urgency: "today" };
@@ -33,5 +33,36 @@ describe("buildEmailBody", () => {
         "📅 Demain : Envoyer la facture (échéance 27/06)\n\n" +
         "→ Voir dans l'agenda : https://fondio.app/agenda"
     );
+  });
+});
+
+describe("buildEmailHtml", () => {
+  const html = buildEmailHtml(
+    [tomorrow, overdue, today],
+    "https://fondio.app/agenda",
+    "https://fondio.app/fondio-logo.png",
+  );
+
+  it("intègre le logo, le lien agenda et le nombre de tâches", () => {
+    expect(html).toContain('src="https://fondio.app/fondio-logo.png"');
+    expect(html).toContain('href="https://fondio.app/agenda"');
+    expect(html).toContain("3 tâche(s)");
+  });
+
+  it("affiche chaque tâche avec sa pastille d'urgence", () => {
+    expect(html).toContain("Relancer le client X");
+    expect(html).toContain("En retard");
+    expect(html).toContain("Aujourd'hui");
+    expect(html).toContain("Demain");
+  });
+
+  it("échappe le HTML du contenu des tâches", () => {
+    const injected = buildEmailHtml(
+      [{ content: '<script>alert("x")</script>', due_date: "2026-06-26", urgency: "today" }],
+      "https://fondio.app/agenda",
+      "https://fondio.app/fondio-logo.png",
+    );
+    expect(injected).not.toContain("<script>");
+    expect(injected).toContain("&lt;script&gt;");
   });
 });

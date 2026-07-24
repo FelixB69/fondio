@@ -5,7 +5,7 @@
 // fait côté SQL dans notifications_due_today()).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { buildEmailBody, buildEmailSubject, EmailNotificationTask } from "../../../lib/notification-email.ts";
+import { buildEmailBody, buildEmailHtml, buildEmailSubject, EmailNotificationTask } from "../../../lib/notification-email.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -19,14 +19,20 @@ interface NotificationRow {
   tasks: EmailNotificationTask[];
 }
 
-async function sendEmail(to: string, subject: string, text: string): Promise<boolean> {
+async function sendEmail(
+  to: string,
+  subject: string,
+  text: string,
+  html: string,
+): Promise<boolean> {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from: RESEND_FROM_EMAIL, to, subject, text }),
+    // `text` reste la version de repli (clients sans HTML / anti-spam).
+    body: JSON.stringify({ from: RESEND_FROM_EMAIL, to, subject, text, html }),
   });
   if (!res.ok) {
     console.error(`Resend error pour ${to} : ${res.status} ${await res.text()}`);
@@ -49,8 +55,10 @@ Deno.serve(async () => {
 
   for (const row of rows) {
     const subject = buildEmailSubject(row.tasks);
-    const body = buildEmailBody(row.tasks, `${APP_URL}/agenda`);
-    const ok = await sendEmail(row.email, subject, body);
+    const agendaUrl = `${APP_URL}/agenda`;
+    const text = buildEmailBody(row.tasks, agendaUrl);
+    const html = buildEmailHtml(row.tasks, agendaUrl, `${APP_URL}/fondio-logo.png`);
+    const ok = await sendEmail(row.email, subject, text, html);
     if (!ok) continue;
 
     const { error: updateError } = await supabase

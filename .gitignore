@@ -5,3 +5,6 @@ node_modules
 .DS_Store
 *.log
 tsconfig.tsbuildinfo
+
+# Supabase CLI local cache (ref projet, versions liées…)
+supabase/.temp/
