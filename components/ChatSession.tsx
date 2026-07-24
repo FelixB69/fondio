@@ -799,6 +799,9 @@ function ExpertBar({
           >
             <Icon name={a.icon as IconName} size={12} color={active ? a.color : C.textMute} />
             {a.firstName}
+            <span style={{ fontWeight: 500, color: active ? a.color : C.textMute, opacity: 0.75 }}>
+              · {a.role1}
+            </span>
           </button>
         );
       })}

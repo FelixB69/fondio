@@ -1,4 +1,4 @@
-import { ChatMessage, ProjectType } from "./data";
+import { ChatMessage, ProjectType, TaskStatus } from "./data";
 import { GlossaryEntry } from "./glossary";
 
 export interface Project {
@@ -101,6 +101,63 @@ export function computeStats(
     tasksDoneCount,
     challengerSessionsCount,
   };
+}
+
+// Forme minimale d'une tâche pour décrire l'état du projet dans le prompt.
+// (Sous-ensemble de `Task` — on ne veut que le contenu et le statut, comme
+// `buildKnownTermsInstruction` ne prend que les termes.)
+export interface ProjectStateTask {
+  content: string;
+  status: TaskStatus;
+}
+
+// Nombre max de tâches ouvertes listées dans le prompt (budget de tokens pour
+// le modèle local). Au-delà, on résume « …et N autres ».
+const MAX_STATE_TASKS = 10;
+
+// Bloc de prompt décrivant l'ÉTAT ACTUEL du projet (étape de livraison,
+// avancement, tâches ouvertes) pour que l'agent conseille en connaissance de
+// cause : ne pas reproposer ce qui est fait/tranché, enchaîner sur la suite
+// logique de l'étape. Vide si aucun projet rattaché (rien à dire).
+export function buildProjectStateInstruction(input: {
+  name: string;
+  stage: string | null | undefined;
+  tasks: ProjectStateTask[];
+}): string {
+  const meta = stageMeta(input.stage);
+  const stageNo = stageIndex(input.stage) + 1;
+  const total = input.tasks.length;
+  const done = input.tasks.filter((t) => t.status === "done").length;
+  const open = input.tasks.filter((t) => t.status !== "done");
+
+  const lines: string[] = [
+    `ÉTAT ACTUEL DU PROJET « ${input.name} » — contexte à respecter. Ne repropose pas ce qui est déjà fait ou tranché ; enchaîne sur la suite logique compte tenu de l'étape, sans redemander ce qui est déjà connu.`,
+    `- Étape de livraison : ${meta.name} (${stageNo}/${STAGES.length}).`,
+  ];
+
+  if (total > 0) {
+    const pct = Math.round((done / total) * 100);
+    lines.push(`- Avancement : ${done} tâche(s) faite(s) sur ${total} (${pct} %).`);
+  } else {
+    lines.push(`- Aucune tâche enregistrée pour l'instant.`);
+  }
+
+  if (open.length > 0) {
+    // « en cours » avant « à faire » : ce qui est actif d'abord.
+    const ordered = [...open].sort(
+      (a, b) => Number(b.status === "doing") - Number(a.status === "doing"),
+    );
+    const shown = ordered.slice(0, MAX_STATE_TASKS);
+    lines.push(`- Tâches ouvertes :`);
+    for (const t of shown) {
+      lines.push(`  • [${t.status === "doing" ? "en cours" : "à faire"}] ${t.content}`);
+    }
+    if (open.length > shown.length) {
+      lines.push(`  • …et ${open.length - shown.length} autre(s).`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 export const PROJECT_ICONS = [

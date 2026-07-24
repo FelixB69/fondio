@@ -21,6 +21,7 @@ export interface Agent {
   id: AgentId;
   firstName: string;
   name: string;
+  role1: string; // rôle en un mot (affiché à côté du prénom)
   icon: string; // IconName
   color: string;
   bg: string;
@@ -328,6 +329,7 @@ export const AGENTS: Record<AgentId, Agent> = {
     id: "architect",
     firstName: "Malik",
     name: "Architecte technique",
+    role1: "Architecture",
     icon: "layers",
     color: "#7C3AED",
     bg: "#F5F0FF",
@@ -344,6 +346,7 @@ export const AGENTS: Record<AgentId, Agent> = {
     id: "pm",
     firstName: "Clara",
     name: "Chef de projet",
+    role1: "Pilotage",
     icon: "tasks",
     color: "#264573",
     bg: "#EEF2FA",
@@ -360,6 +363,7 @@ export const AGENTS: Record<AgentId, Agent> = {
     id: "product",
     firstName: "Jade",
     name: "Conseillère produit / UX",
+    role1: "Produit",
     icon: "pencil",
     color: "#E8396A",
     bg: "#FEF0F4",
@@ -376,6 +380,7 @@ export const AGENTS: Record<AgentId, Agent> = {
     id: "quality",
     firstName: "Rui",
     name: "Debug & qualité",
+    role1: "Qualité",
     icon: "search",
     color: "#0E9F88",
     bg: "#EDFAF7",
@@ -392,6 +397,7 @@ export const AGENTS: Record<AgentId, Agent> = {
     id: "devops",
     firstName: "Nadia",
     name: "Mise en prod & déploiement",
+    role1: "Déploiement",
     icon: "rocket",
     color: "#D97706",
     bg: "#FFFBEB",
@@ -408,6 +414,7 @@ export const AGENTS: Record<AgentId, Agent> = {
     id: "teacher",
     firstName: "Sam",
     name: "Formateur",
+    role1: "Pédagogie",
     icon: "book",
     color: "#4F46E5",
     bg: "#EEF0FE",

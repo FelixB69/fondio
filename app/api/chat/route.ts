@@ -11,6 +11,7 @@ import { loadUserByokConfig, type SupabaseLike } from "@/lib/byok";
 import { buildKnownTermsInstruction, mergeGlossary, type GlossaryEntry } from "@/lib/glossary";
 import { callChatModelStream, describeLLMError, type LLMMessage } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
+import { buildProjectStateInstruction, type ProjectStateTask } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/server";
 import { gatherWebContext } from "@/lib/web-search";
 
@@ -68,13 +69,31 @@ export async function POST(req: Request) {
   // cible où fusionner les nouveaux termes de ce tour. Seulement si la session
   // est rattachée à un projet.
   let glossary: GlossaryEntry[] = [];
+  // Bloc « État du projet » (étape + avancement + tâches ouvertes) injecté dans
+  // le prompt pour que l'agent conseille en connaissance de l'état réel : ne pas
+  // reproposer ce qui est fait, enchaîner sur la suite logique de l'étape.
+  let projectStateBlock = "";
   if (session.project_id) {
-    const { data: proj } = await supabase
-      .from("projects")
-      .select("glossary")
-      .eq("id", session.project_id)
-      .single();
+    const [{ data: proj }, { data: projTasks }] = await Promise.all([
+      supabase
+        .from("projects")
+        .select("name, stage, glossary")
+        .eq("id", session.project_id)
+        .single(),
+      supabase
+        .from("tasks")
+        .select("content, status")
+        .eq("project_id", session.project_id)
+        .eq("user_id", user.id),
+    ]);
     glossary = Array.isArray(proj?.glossary) ? (proj!.glossary as GlossaryEntry[]) : [];
+    if (proj) {
+      projectStateBlock = buildProjectStateInstruction({
+        name: typeof proj.name === "string" && proj.name.trim() ? proj.name : "Projet",
+        stage: proj.stage as string | null,
+        tasks: Array.isArray(projTasks) ? (projTasks as ProjectStateTask[]) : [],
+      });
+    }
   }
   const knownTermsBlock = buildKnownTermsInstruction(glossary);
 
@@ -167,7 +186,11 @@ export async function POST(req: Request) {
       isFirstReply && firstName ? firstName : undefined,
       knownTermsBlock || undefined,
       session.guided === true,
-    ) + previousContext + webContext + webFormatReminder;
+    ) +
+    (projectStateBlock ? `\n\n${projectStateBlock}` : "") +
+    previousContext +
+    webContext +
+    webFormatReminder;
 
   const llmMessages: LLMMessage[] = [
     { role: "system", content: systemPrompt },
