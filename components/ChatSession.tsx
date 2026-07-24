@@ -1726,18 +1726,69 @@ export function ChatSession({
         {messages.length === 0 && !loading && (
           <div
             style={{
-              color: C.textMute,
-              fontSize: 13.5,
-              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
               marginTop: 60,
-              maxWidth: 420,
+              maxWidth: 480,
               alignSelf: "center",
-              lineHeight: 1.6,
             }}
           >
-            Dites à <strong style={{ color: agent.color }}>{agent.firstName}</strong> sur quoi vous voulez travailler aujourd'hui.
-            <br />
-            Plus vous donnez de contexte, plus la session sera utile.
+            <div
+              style={{
+                color: C.textMute,
+                fontSize: 13.5,
+                textAlign: "center",
+                lineHeight: 1.6,
+              }}
+            >
+              Dites à <strong style={{ color: agent.color }}>{agent.firstName}</strong> sur quoi vous voulez travailler aujourd'hui.
+              <br />
+              Plus vous donnez de contexte, plus la session sera utile.
+            </div>
+            {agent.starters.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  justifyContent: "center",
+                  gap: 8,
+                  marginTop: 22,
+                }}
+              >
+                {agent.starters.map((starter) => (
+                  <button
+                    key={starter}
+                    type="button"
+                    onClick={() => void sendMessage(starter)}
+                    style={{
+                      background: C.white,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 100,
+                      padding: "8px 14px",
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: C.textSub,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      transition: "all 0.15s",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = agent.color;
+                      e.currentTarget.style.color = agent.color;
+                      e.currentTarget.style.background = agent.bg;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = C.border;
+                      e.currentTarget.style.color = C.textSub;
+                      e.currentTarget.style.background = C.white;
+                    }}
+                  >
+                    {starter}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {displayMessages.map((m, i) => {

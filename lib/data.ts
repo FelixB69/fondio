@@ -27,6 +27,10 @@ export interface Agent {
   bg: string;
   desc: string;
   tags: string[];
+  // Amorces de conversation proposées dans le chat vide : des questions prêtes
+  // à cliquer, formulées côté porteur non-technique, qui montrent ce que
+  // l'agent sait faire et lèvent l'angoisse de la page blanche.
+  starters: string[];
   systemPrompt: string;
 }
 
@@ -335,6 +339,11 @@ export const AGENTS: Record<AgentId, Agent> = {
     bg: "#F5F0FF",
     desc: "Choisir la bonne techno, structurer le projet, éviter les erreurs coûteuses.",
     tags: ["stack", "architecture", "dette"],
+    starters: [
+      "Aidez-moi à choisir les technos pour mon projet",
+      "Est-ce que mon idée est réaliste techniquement ?",
+      "Quelles sont les grandes briques à construire ?",
+    ],
     systemPrompt: buildPrompt(
       "Malik",
       "Tu es un architecte technique senior. Tu conseilles des porteurs de projet non-techniques sur le choix de stack, l'architecture, le découpage technique et la dette. Tu traduis chaque choix en bénéfice concret et en coût, jamais en jargon.",
@@ -352,6 +361,11 @@ export const AGENTS: Record<AgentId, Agent> = {
     bg: "#EEF2FA",
     desc: "Cadrer, planifier, découper en jalons et suivre l'avancement.",
     tags: ["cadrage", "planning", "priorisation"],
+    starters: [
+      "Par quoi je commence sur ce projet ?",
+      "Aidez-moi à découper mon projet en étapes",
+      "Faites-moi un premier rétroplanning",
+    ],
     systemPrompt: buildPrompt(
       "Clara",
       "Tu es cheffe de projet dev. Tu cadres, planifies, découpes en jalons et tâches, priorises et suis l'avancement pour quelqu'un qui ne sait pas coder.",
@@ -369,6 +383,11 @@ export const AGENTS: Record<AgentId, Agent> = {
     bg: "#FEF0F4",
     desc: "Définir le parcours utilisateur, prioriser les fonctionnalités, cadrer un MVP.",
     tags: ["parcours", "MVP", "priorisation"],
+    starters: [
+      "Quelles fonctionnalités garder pour une première version ?",
+      "Aidez-moi à décrire le parcours de mes utilisateurs",
+      "Comment savoir si mon idée intéresse vraiment les gens ?",
+    ],
     systemPrompt: buildPrompt(
       "Jade",
       "Tu es conseillère produit/UX. Tu aides à définir le parcours utilisateur, prioriser les fonctionnalités et cadrer un MVP utile plutôt qu'exhaustif.",
@@ -386,6 +405,11 @@ export const AGENTS: Record<AgentId, Agent> = {
     bg: "#EDFAF7",
     desc: "Structurer les tests, tracer les bugs, maîtriser la dette technique.",
     tags: ["tests", "bugs", "revue"],
+    starters: [
+      "Comment vérifier que mon projet fonctionne bien ?",
+      "Aidez-moi à décrire un bug pour le faire corriger",
+      "Que faut-il tester avant de mettre en ligne ?",
+    ],
     systemPrompt: buildPrompt(
       "Rui",
       "Tu es expert qualité et debug. Tu aides à structurer les tests, organiser la revue, tracer et prioriser les bugs et la dette, sans présumer de compétence technique.",
@@ -403,6 +427,11 @@ export const AGENTS: Record<AgentId, Agent> = {
     bg: "#FFFBEB",
     desc: "Mettre en ligne : hébergement, CI/CD, nom de domaine, monitoring, sauvegardes.",
     tags: ["déploiement", "hébergement", "monitoring"],
+    starters: [
+      "Comment mettre mon projet en ligne ?",
+      "Où héberger mon projet, et à quel coût ?",
+      "Que faut-il prévoir avant le lancement ?",
+    ],
     systemPrompt: buildPrompt(
       "Nadia",
       "Tu es experte déploiement. Tu accompagnes la mise en ligne : hébergement, CI/CD, nom de domaine, monitoring, sauvegardes — expliqués pour un non-technique.",
@@ -420,6 +449,11 @@ export const AGENTS: Record<AgentId, Agent> = {
     bg: "#EEF0FE",
     desc: "Comprendre un terme ou un outil tech, expliqué simplement, à tout moment.",
     tags: ["pédagogie", "définitions", "vulgarisation"],
+    starters: [
+      "C'est quoi une API, en mots simples ?",
+      "Expliquez-moi comment marche un hébergement",
+      "Quelle est la différence entre front et back ?",
+    ],
     systemPrompt: buildPrompt(
       "Sam",
       "Tu es formateur/pédagogue tech. Tu réponds aux questions frontales (« c'est quoi une API ? », « comment marche un hébergement ? ») en langage simple, avec des analogies, pour quelqu'un qui découvre le développement.",
