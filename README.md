@@ -1,8 +1,8 @@
 # Fondio
 
-App de conseil IA par agents spécialisés (perso & pro). Stack : Next.js 14 (App Router), TypeScript, Tailwind, Supabase (auth + persistance des sessions), Ollama (modèles locaux — Llama3 par défaut).
+**Copilote de gestion de projets IT** pour porteurs de projet **non-techniques**. Vous arrivez avec un projet tech (site web, appli IA, script, appli mobile, API…) et Fondio vous accompagne de l'idée à la livraison : conseil par agents spécialisés **et** suivi structuré (projets, étapes, tâches, agenda). Chaque terme technique est expliqué en langage simple.
 
-L'utilisateur choisit un type de projet (🌱 perso / 💼 pro), sélectionne un agent conseiller, et démarre une session structurée. L'agent répond en français avec un texte principal, un bloc **Livrables** (quand quelque chose de concret est produit) et, si le **Mode Challenger** est activé, un bloc **Questions difficiles**.
+Stack : Next.js 14 (App Router), TypeScript, Supabase (auth + persistance), IA **locale d'abord** (Ollama) avec **secours cloud** (Mistral) et **BYOK**.
 
 ## Démarrage en 4 étapes
 
@@ -10,132 +10,108 @@ L'utilisateur choisit un type de projet (🌱 perso / 💼 pro), sélectionne un
 
 ```bash
 npm install
-cp .env.example .env.local   # à créer si absent
+cp .env.example .env.local
 ```
 
-`.env.local` :
+`.env.local` — Supabase obligatoire, le reste optionnel (voir `.env.example`) :
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3
+OLLAMA_MODEL=mistral
+# Optionnel : MISTRAL_API_KEY (secours cloud), TAVILY_API_KEY (recherche web),
+# API_KEY_ENCRYPTION_SECRET (BYOK)
 ```
 
 ### 2. Supabase
 
 1. Créer un projet sur [supabase.com](https://supabase.com).
-2. **Authentication → Providers → Email** : *Confirm email* doit rester **activé** (la signup envoie un lien, l'utilisateur le clique, atterrit sur `/auth/callback` qui finalise la session).
-3. **Authentication → URL Configuration → Redirect URLs** : ajouter `http://localhost:3000/auth/callback` (et l'URL de prod si vous déployez).
-4. **SQL editor** : coller et exécuter [supabase/schema.sql](supabase/schema.sql). Cela crée `profiles` et `sessions`, active RLS, et drop les anciennes tables si vous migrez depuis l'ancien schéma.
-5. **Settings → API** : copier `Project URL` et `anon public` key dans `.env.local`.
+2. **Authentication → Providers → Email** : *Confirm email* activé.
+3. **URL Configuration → Redirect URLs** : ajouter `http://localhost:3000/auth/callback`.
+4. **SQL editor** : exécuter [supabase/schema.sql](supabase/schema.sql), puis les migrations de [supabase/migrations/](supabase/migrations/). ⚠️ `schema.sql` est une **référence approximative** — préférez des `ALTER TABLE` isolés, ne droppez jamais de table en prod.
+5. **Settings → API** : copier `Project URL` et `anon public` dans `.env.local`.
 
-### 3. Ollama
+### 3. Ollama (IA locale)
 
 ```bash
-brew install ollama       # si pas déjà installé
-ollama serve              # daemon sur http://localhost:11434
-ollama pull llama3        # ou : mistral, llama3.1:8b, qwen2.5...
+brew install ollama
+ollama serve
+ollama pull mistral                 # chat
+ollama pull qwen2.5-coder:7b        # artefacts structurés
+ollama pull llama3.1                # recherche web (tool-calling ; llama3 ne suffit pas)
 ```
 
-Vérifiez le modèle disponible :
-```bash
-ollama list
-```
-
-Si vous utilisez un autre tag, ajustez `OLLAMA_MODEL` dans `.env.local`.
+Sans Ollama joignable, l'app bascule sur Mistral cloud si `MISTRAL_API_KEY` est fournie.
 
 ### 4. Lancer
 
 ```bash
-npm run dev
+npm run dev   # http://localhost:3000
 ```
-
-→ http://localhost:3000
 
 ## Flow utilisateur
 
-1. **Auth** — login / sign up via Supabase email/password.
-2. **TypeSelector** — choix Perso (🌱) ou Pro (💼).
-3. **AgentSelector** — grille des 4 agents disponibles selon le type.
-4. **ChatSession** — chat avec l'agent. Toggle **Mode Challenger** dans le header pour pousser l'agent à challenger les hypothèses.
-5. **Sidebar** — historique de toutes les sessions, cliquables pour reprendre.
+1. **Auth** — login / sign up Supabase.
+2. **TypeSelector** — nature du projet IT (6 genres).
+3. **AgentSelector** — roster complet + **Mode Panel** (2–4 agents qui débattent) et **Mode Challenger**.
+4. **ChatSession** / **MultiAgentSession** — chat en streaming ; livrables, tâches, questions difficiles et lexique s'affichent sous les réponses.
+5. **Projets / Tâches / Agenda / Bibliothèque** — l'espace de travail autour du chat.
+
+## Genres de projet
+
+🌐 Site / app web · 🤖 Projet IA · 🧩 Script / automatisation · 📱 Application mobile · 🔌 API / backend / intégration · 🛠️ Autre projet tech
+
+*(en UI, ce sont des icônes — pas d'emoji.)* Le genre n'est pas un filtre d'agents : il enrichit le contexte technique injecté dans le prompt.
 
 ## Agents
 
-### 💼 Pro
-- 🧠 **Stratège** — vision long terme, positionnement, modèle économique
-- 📊 **Analyste marché** — TAM/SAM/SOM, concurrents, tendances, pricing
-- 💰 **Conseiller financier** — projections, unit economics, structure de coûts
-- ⚙️ **CTO de poche** — stack tech, architecture, roadmap produit, dette technique
+Tous transverses (dispo pour tout projet), définis dans [lib/data.ts](lib/data.ts) :
 
-### 🌱 Perso
-- 🎯 **Coach de projet** — clarification d'objectif, motivation, structure d'action
-- 🚀 **Mentor lancement** — MVP, premiers clients, side project → revenu
-- ✍️ **Conseiller créatif** — contenu, marque perso, audience
-- 🔄 **Guide reconversion** — compétences transférables, plan de transition, réseau
-
-Chaque agent a son `systemPrompt` dédié dans [lib/data.ts](lib/data.ts). Le mode Challenger ajoute un bloc d'instructions supplémentaire au prompt système avant l'appel.
+- 🏗️ **Architecte technique** (Malik) — stack, architecture, découpage, dette
+- 🗂️ **Chef de projet** (Clara) — cadrage, planning, jalons ; **seul à créer des tâches**
+- 🎨 **Conseiller produit / UX** (Jade) — parcours, priorisation, MVP
+- 🐛 **Debug & qualité** (Rui) — tests, revue, bugs, dette
+- 🚀 **Mise en prod & déploiement** (Nadia) — hébergement, CI/CD, monitoring
+- 🎓 **Formateur** (Sam) — répond aux questions frontales (« c'est quoi une API ? ») ; **seul à faire le cours long format**
 
 ## Format de réponse
 
-Llama3 n'est pas fiable en JSON strict. On lui demande à la place un format texte avec sections marquées :
+Format texte à sections, parsé en regex avec **fallback gracieux** ([lib/parse-agent-reply.ts](lib/parse-agent-reply.ts)) :
 
 ```
-[Réponse principale en clair, 2-5 paragraphes max]
+[Réponse principale]
 
-LIVRABLES:
-- premier livrable concret
-- deuxième livrable
-
-CHALLENGES:                    ← uniquement si Mode Challenger ON
-- question difficile qui challenge une hypothèse
-- angle mort potentiel
+LIVRABLES:      → chose produite (matérialisée en artefacts, convertible en tâche)
+TÂCHES:         → Chef de projet uniquement (alimente le board, statut todo)
+CHALLENGES:     → Mode Challenger uniquement
+LEXIQUE:        → terme technique nouveau (alimente le glossaire du projet)
 ```
 
-La route [app/api/chat/route.ts](app/api/chat/route.ts) parse cette structure en regex. **Triple fallback** :
-1. Si la réponse contient un objet JSON valide avec `message`, on l'utilise tel quel.
-2. Sinon on extrait les sections `LIVRABLES:` et `CHALLENGES:` en regex.
-3. Sinon, le texte brut devient le `content` (rien n'est perdu).
+**Pédagogie sans redite** : un terme n'est expliqué qu'une fois par projet — les termes déjà dans `projects.glossary` sont réinjectés dans le prompt comme « déjà connus ».
+
+## Suivi de projet
+
+Un **projet** regroupe des sessions, des tâches et un glossaire. Son **étape** suit un cycle de **livraison** (`Cadrage → Conception → Développement → Recette → Mise en ligne → Maintenance`), réglée manuellement ; l'avancement affiché = **% de tâches faites**.
 
 ## Architecture
 
 | Couche | Code |
 | --- | --- |
-| Routage écrans | `useState` dans [components/App.tsx](components/App.tsx) |
-| Auth | Supabase email/password — [components/AuthScreen.tsx](components/AuthScreen.tsx) |
-| Persistance | `@supabase/ssr` — [lib/supabase/client.ts](lib/supabase/client.ts) (browser), [lib/supabase/server.ts](lib/supabase/server.ts) (route) |
-| Agents IA | Ollama HTTP (`/api/chat`) — [app/api/chat/route.ts](app/api/chat/route.ts), prompts dans [lib/data.ts](lib/data.ts) |
-| Schéma | RLS partout, FK en cascade — [supabase/schema.sql](supabase/schema.sql) |
+| Écrans | `components/*Screen.tsx`, `app/(authenticated)/**` |
+| Auth | `@supabase/ssr` — [lib/supabase/](lib/supabase/), [middleware.ts](middleware.ts) |
+| Chat | [app/api/chat/route.ts](app/api/chat/route.ts), panel : [app/api/panel-chat/route.ts](app/api/panel-chat/route.ts) |
+| Agents / prompts | [lib/data.ts](lib/data.ts) |
+| Projets / tâches / glossaire | [lib/projects.ts](lib/projects.ts), [lib/use-tasks.ts](lib/use-tasks.ts), [lib/glossary.ts](lib/glossary.ts) |
+| LLM multi-provider | [lib/llm.ts](lib/llm.ts), [lib/byok.ts](lib/byok.ts), [lib/web-search.ts](lib/web-search.ts) |
 
-### Schéma Supabase compact
+## Auth — protection
 
-Une seule table `sessions` :
-- `id`, `user_id`, `project_type` (`'perso' | 'pro'`), `agent_id`, `title`, `challenger_mode`
-- `messages jsonb` — un tableau d'objets `{ role, content, deliverables?, challenges?, ts }`. Compressé LZ4 par Postgres pour les longs fils.
-- `created_at`, `updated_at`
-
-Pas de tables séparées pour les messages — tout vit dans le JSONB de la session, ce qui évite multi-inserts et requêtes N+1 sur le chargement.
-
-## Variables d'environnement
-
-| Variable | Défaut | Usage |
-| --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | — | Project URL Supabase |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | — | anon public key Supabase |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Endpoint daemon Ollama |
-| `OLLAMA_MODEL` | `llama3` | Tag exact du modèle (doit être `pull`é) |
-
-## Auth — protection mandatory
-
-- Confirmation email obligatoire : impossible de créer un compte avec un email bidon (le lien doit être cliqué).
-- [middleware.ts](middleware.ts) rafraîchit la session Supabase sur chaque requête (pattern `@supabase/ssr`).
-- L'API `/api/chat` rejette toute requête non-authentifiée (401), même via curl.
-- RLS Postgres : la table `sessions` est inaccessible sans `auth.uid() = user_id`.
-- Page `/auth/callback` ([app/auth/callback/route.ts](app/auth/callback/route.ts)) consomme le code PKCE des liens email (signup + reset password).
+- Confirmation email obligatoire ; `/auth/callback` consomme le code PKCE.
+- [middleware.ts](middleware.ts) rafraîchit la session sur chaque requête.
+- Les routes API rejettent toute requête non authentifiée (401).
+- RLS Postgres : tables inaccessibles sans `auth.uid() = user_id`.
 
 ## Limitations connues
 
-- Pas de streaming — la réponse arrive en bloc une fois Ollama terminé (peut être lent sur Llama3 8B selon la machine).
-- Llama3 produit parfois du texte qui ne match pas le format → le fallback affiche le contenu brut sans bloc Livrables/Challenges. Acceptable pour un proto.
-- Pas de page dédiée pour mettre à jour le mot de passe après reset (le callback ouvre la home, mais il faudrait un formulaire de changement).
-- Pas d'export PDF/Markdown des sessions pour le moment.
+- Recherche web nécessite une clé Tavily et un modèle qui gère le tool-calling.
+- Pas de page dédiée de changement de mot de passe (le reset ouvre la home).

@@ -1,178 +1,134 @@
 # Fondio — Guide de travail pour Claude Code
 
-**Fondio** est une application de conseil IA avec agents spécialisés. Elle permet aux utilisateurs de créer des sessions de chat structurées avec différents conseillers (Stratège, Analyste marché, Coach de projet, etc.) pour des besoins professionnels ou personnels.
+**Fondio** est un **copilote de gestion de projets IT** pour porteurs de projet **non-techniques**. L'utilisateur arrive avec un projet tech (site web, appli IA, script, appli mobile, API…) et Fondio l'accompagne de l'idée à la livraison, avec du conseil (agents spécialisés) **et** un suivi structuré (projets, jalons, tâches, agenda). Chaque terme technique employé est expliqué en langage simple.
 
 ## Stack principal
 
 - **Framework** : Next.js 14 (App Router)
 - **Langage** : TypeScript 5
-- **Styling** : Tailwind CSS
-- **Auth + DB** : Supabase (email/password auth, RLS, JSONB sessions)
-- **IA** : Ollama (modèles locaux : Llama3, Mistral, Qwen, etc.)
-- **Export** : PDFKit, XLSX, Docx pour générer des documents
+- **Styling** : styles inline via tokens (`lib/design-tokens.ts`), pas de CSS modules
+- **Auth + DB** : Supabase (email/password, RLS, sessions/projets/tâches en Postgres + JSONB)
+- **IA** : multi-provider — **Ollama local d'abord** (Mistral/Llama3.1/Qwen), **Mistral cloud en secours**, et **BYOK** (clé perso de l'utilisateur, chiffrée). Voir `lib/llm.ts`, `lib/byok.ts`.
+- **Recherche web** : Tavily (tool-calling), `lib/web-search.ts`
+- **Export/artefacts** : 2e passe qui matérialise les livrables en tableaux/documents (`lib/artifacts.ts`)
 
 ## Démarrage local
 
 ```bash
 npm install
+cp .env.example .env.local   # remplir Supabase + (optionnel) Mistral/Tavily/BYOK
 
-# Créer .env.local avec les clés Supabase
-cp .env.example .env.local
-# NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-# OLLAMA_BASE_URL=http://localhost:11434
-# OLLAMA_MODEL=llama3
-
-# Ollama doit tourner en daemon
 ollama serve &
-ollama pull llama3
+ollama pull mistral                 # OLLAMA_MODEL (chat)
+ollama pull qwen2.5-coder:7b        # OLLAMA_ARTIFACT_MODEL (artefacts JSON)
+ollama pull llama3.1                # OLLAMA_TOOL_MODEL (recherche web — llama3 ne gère PAS les tools)
 
-# Démarrer le serveur de dev
-npm run dev
+npm run dev   # http://localhost:3000
 ```
 
-http://localhost:3000
+Le fallback cloud (Mistral) et la recherche web (Tavily) sont optionnels : sans leurs clés, l'app tourne en 100 % local et la recherche web est simplement désactivée. Voir `.env.example` pour toutes les variables.
 
 ## Architecture
 
 ### Flux utilisateur
 
-1. **AuthScreen** — sign up / login via Supabase email
-2. **LandingScreen** — page d'accueil avec présentation
-3. **ProjectPickerScreen** — choix Perso (🌱) ou Pro (💼)
-4. **AgentSelector** — grille de 4 agents selon le type
-5. **ChatSession** — chat avec l'agent + toggle Mode Challenger
-6. **Sidebar** — historique des sessions
+1. **AuthScreen** — sign up / login Supabase (confirmation email obligatoire)
+2. **LandingScreen** → **TypeSelector** — choix de la **nature du projet IT** (6 genres)
+3. **AgentSelector** — le **roster complet** (6 agents), + toggle **Mode Panel** (2 à 4 agents qui débattent) et **Mode Challenger**
+4. **ChatSession** (agent seul) ou **MultiAgentSession** (panel + synthèse) — streaming NDJSON
+5. **Projets / Tâches / Agenda / Bibliothèque** — l'espace de travail autour du chat
 
 ### Couches clés
 
 | Couche | Fichiers |
 |--------|----------|
-| **App Router** | `components/App.tsx` (gestion d'état principal via useState) |
-| **Écrans** | `components/*Screen.tsx` |
-| **Auth** | `components/AuthScreen.tsx`, `lib/supabase/client.ts`, `lib/supabase/server.ts` |
-| **Chat** | `components/ChatSession.tsx`, `app/api/chat/route.ts` |
-| **Agents** | `lib/data.ts` (4 agents × 2 types = 8 systemPrompts) |
-| **Session** | Supabase table `sessions` (JSONB messages avec RLS) |
+| **Écrans** | `components/*Screen.tsx`, routage via `app/(authenticated)/**` |
+| **Auth** | `components/AuthScreen.tsx`, `lib/supabase/{client,server}.ts`, `middleware.ts` |
+| **Chat** | `components/ChatSession.tsx` + `app/api/chat/route.ts` ; panel : `components/MultiAgentSession.tsx` + `app/api/panel-chat/route.ts` |
+| **Agents & prompts** | `lib/data.ts` (6 agents IT, catégories, `buildSystemPrompt`/`buildPanelAgentPrompt`) |
+| **Parsing réponses** | `lib/parse-agent-reply.ts` |
+| **Projets / étapes / XP** | `lib/projects.ts` |
+| **Tâches** | `lib/tasks.ts`, `lib/use-tasks.ts` (cache SWR **partagé** — ne PAS fetcher les tâches par écran) |
+| **Glossaire pédagogique** | `lib/glossary.ts` |
+| **LLM multi-provider** | `lib/llm.ts`, `lib/byok.ts`, `lib/web-search.ts`, `lib/artifacts.ts` |
 
-### Schéma Supabase
+### Genres de projet & agents (`lib/data.ts`)
 
-Une seule table `sessions` par design :
-- `id` (UUID primary key)
-- `user_id` (FK → `auth.users`, cascade delete)
-- `project_type` ('perso' | 'pro')
-- `agent_id` (string, ex. 'strategist')
-- `title` (string)
-- `challenger_mode` (boolean)
-- `messages` (JSONB array of `{ role, content, deliverables?, challenges?, ts }`)
-- `created_at`, `updated_at` (timestamps)
+- **`project_type`** (nom de colonne conservé) porte désormais un **genre IT** : `web | ai | script | mobile | api | other`. Ce n'est **pas un filtre d'agents** — c'est du **contexte** injecté dans le prompt (`PROJECT_TYPE_INSTRUCTIONS`).
+- **6 agents transverses** (tous dispo pour tout projet) : `architect` (Malik), `pm` (Clara), `product` (Jade), `quality` (Rui), `devops` (Nadia), `teacher` (Sam).
+  - `pm` est le **seul** à produire des **tâches** (`TÂCHES:`).
+  - `teacher` est le **seul** autorisé au **cours long format** ; les autres définissent brièvement et renvoient vers lui pour l'approfondissement.
 
-**Avantage** : tout vit dans un seul JSONB, pas de N+1 sur les messages.
-**Important** : Postgres compresse les JSONB longs en LZ4 automatiquement.
+### Schéma Supabase (réel)
+
+- **`profiles`** — miroir de `auth.users` (trigger à l'inscription).
+- **`projects`** — `name`, `icon`, `color`, `project_type` (genre IT), `stage` (cycle de **livraison**), `glossary jsonb` (termes déjà expliqués).
+- **`sessions`** — `project_id` (nullable), `project_type`, `agent_id`, `panel_agent_ids`, `challenger_mode`, `messages jsonb`, `archived_at`. Messages : `{ role, content, deliverables?, challenges?, tasks?, lexicon?, artifacts?, sources?, agentId?, provider?, ts }`.
+- **`tasks`** — `session_id`/`project_id` (nullable), `content`, `status` (`todo|doing|done`), `priority`, `start_date`, `due_date`, `comments jsonb`, `source_agent_id`.
+
+RLS partout (`auth.uid() = user_id`). JSONB compressé LZ4.
+
+## Format de réponse IA
+
+Les modèles ne produisent pas du JSON fiable → format **texte à sections**, parsé en regex avec **fallback gracieux** (`lib/parse-agent-reply.ts`) :
+
+```
+[Réponse principale en clair]
+
+LIVRABLES:            ← chose produite (→ artefacts + convertible en tâche)
+- livrable concret
+
+TÂCHES:               ← Chef de projet uniquement (→ board, statut todo)
+- action à réaliser
+
+CHALLENGES:           ← Mode Challenger uniquement
+- question difficile
+
+LEXIQUE:              ← terme technique nouveau (→ glossaire du projet)
+- terme — définition simple
+```
+
+Règles du parseur : titres tolérants au markdown (`**LIVRABLES:**`, `## …`) ; les blocs de section sont retirés **où qu'ils soient** (y compris en tête) ; ne reste que la prose. `TÂCHES` accepte l'absence d'accent.
+
+### Volet pédagogique (anti-cours)
+
+Un terme n'est expliqué **qu'une fois par projet** : les termes déjà dans `projects.glossary` sont **réinjectés dans le prompt** comme « déjà expliqués, ne pas redéfinir » (`buildKnownTermsInstruction`). Le LLM n'a pas de mémoire — c'est la DB qui la porte et qu'on réinjecte à chaque tour.
+
+### Étapes = statut de livraison, PAS l'XP
+
+`STAGES` = `Cadrage → Conception → Développement → Recette → Mise en ligne → Maintenance`. L'étape est le **statut stocké `project.stage`** (réglé à la main via le stepper), **découplé de l'XP**. L'avancement affiché = **% de tâches faites**. L'XP reste un simple indicateur d'activité.
 
 ## Conventions de code
 
-### Composants React
+- **Functional components** + hooks (pas de class components), PascalCase.
+- TypeScript strict : typer props/retours, pas de `any`.
+- Styles **inline via `lib/design-tokens.ts`** (`C.navy`, `C.border`…), responsive via `useIsMobile`.
+- **Pas d'emoji dans l'UI** — utiliser le système d'icônes `components/Icon.tsx` (`IconName`).
+- API routes : vérifier l'auth (`getUser()`), JSON, codes HTTP explicites (401/400/404/503).
+- **Vouvoiement** dans les réponses agent, les commentaires et la doc.
+- Commits : `feat|fix|refactor: …`, 1re ligne ≤ 70 car., en français.
 
-- Utiliser des **functional components** avec hooks (React 18)
-- **Pas de class components**
-- Préférer `useState` pour l'état local, Supabase pour la persistance
-- Noms en PascalCase (ex. `ChatSession.tsx`)
+## Pièges
 
-### TypeScript
+### ⚠️ `supabase/schema.sql` — approximatif
 
-- Typer **tous les props** et retours de fonction
-- Utiliser des **types explicites**, pas `any`
-- Enums pour les constantes (ex. `project_type`, `agent_id`)
-
-### Styling
-
-- **Tailwind CSS** uniquement — pas de CSS modules
-- Préférer les utilitaires Tailwind (`flex`, `gap-4`) plutôt que du CSS custom
-- Responsive d'abord (`sm:`, `md:`, `lg:`)
-
-### API Routes
-
-- Implémenter la vérification d'auth (appel `getUser()` depuis `lib/supabase/server.ts`)
-- Toujours retourner du JSON (type de réponse `application/json`)
-- Gérer les erreurs avec codes HTTP explicites (401, 400, 500)
-
-### Messages Commit
-
-- Format court : `feat: ...`, `fix: ...`, `refactor: ...`
-- Première ligne ≤ 70 caractères
-- En français si le code est francisé
-
-## Points clés de la conception
-
-### Authentification
-
-- **Supabase Auth** avec confirmation email obligatoire
-- `middleware.ts` rafraîchit la session sur chaque requête (pattern `@supabase/ssr`)
-- `/auth/callback` consomme le code PKCE des liens email
-- RLS Postgres : table `sessions` inaccessible sans `auth.uid() = user_id`
-
-### Format de réponse IA
-
-Llama3 ne génère pas du JSON fiable, donc on demande un format texte :
-
-```
-[Réponse principale en clair, 2-5 paragraphes max]
-
-LIVRABLES:
-- premier livrable concret
-- deuxième livrable
-
-CHALLENGES:                    ← seulement si Mode Challenger ON
-- question difficile
-- angle mort potentiel
-```
-
-Le parser dans `app/api/chat/route.ts` a un triple fallback :
-1. Cherchez un JSON valide avec champ `message`
-2. Sinon extrayez les sections `LIVRABLES:` et `CHALLENGES:` en regex
-3. Sinon, affichez le texte brut tel quel
-
-## Pièges et limites
-
-### ⚠️ schema.sql — LIRE AVANT TOUTE MODIF
-
-Le fichier `supabase/schema.sql` est approximatif. **À l'époque d'une migration antérieure, il a droppé la table `projects` en live.** Avant de modifier le schéma :
-- Lisez le commit d'origine pour comprendre le contexte
-- Utilisez **des ALTER TABLE isolés** plutôt que des CREATE TABLE massifs
-- **Ne droppez jamais une table en production** sans coordination
-
-### Limitations actuelles
-
-- **Pas de streaming** — la réponse arrive en bloc quand Ollama a fini
-- **Ollama local** — performance dépend de votre machine (Llama3 8B peut être lent)
-- **Pas de changement de password** — reset envoie un lien, mais pas de formulaire dédiée pour mettre à jour
-- **Pas d'export PDF/Markdown** — les dépendances existent (`pdfkit`, `docx`) mais pas d'UI
+Doc de référence, **pas la source de vérité** (la vraie DB a évolué au-delà). Une migration passée a déjà **droppé la table `projects` en live**. Pour toute évolution de schéma : **ALTER TABLE isolés**, jamais de gros CREATE/DROP, **ne jamais dropper une table** sans coordination. Les migrations réelles vivent dans `supabase/migrations/`.
 
 ## Commandes utiles
 
 ```bash
-npm run dev       # Démarrage dev (hot reload)
-npm run build     # Build produit
-npm run lint      # ESLint + TypeScript
-npm run typecheck # Vérifier types sans build
+npm run dev        # dev (hot reload)
+npm run build      # build prod
+npm run typecheck  # tsc --noEmit
+npm test           # vitest run
 ```
 
-## Variantes de modèles Ollama
-
-```bash
-ollama pull llama3            # Par défaut (13B)
-ollama pull llama3:8b         # Variant plus petit
-ollama pull mistral           # Mistral 7B
-ollama pull qwen2.5:14b       # Qwen 14B
-```
-
-Ajuster `OLLAMA_MODEL` dans `.env.local` en conséquence.
+`npm run lint` (next lint) n'est **pas configuré** (prompt interactif) — s'appuyer sur `typecheck` + `test`.
 
 ## À retenir
 
-1. **Auth est sérieuse** — RLS partout, validation côté serveur obligatoire
-2. **Sessions = JSONB, pas de table messages** — design simple et performant
-3. **Vouvoiement dans le code commenté et la doc** — convention de ce projet
-4. **Ollama local = pas de cloud** — tout reste sur votre machine
-5. **Parser IA robuste** — format texte + fallback, jamais du JSON strict
+1. **Copilote de projets IT pour non-techniciens** — pédagogie systématique, glossaire persistant.
+2. **Auth sérieuse** — RLS partout, validation serveur.
+3. **Local d'abord, cloud en secours, BYOK** — l'UI doit nommer le provider réel.
+4. **Tâches via `useTasks` (SWR partagé)** — jamais de fetch de tâches par écran.
+5. **Parser robuste** — format texte + fallback, jamais du JSON strict.
