@@ -738,6 +738,177 @@ function OrientSuggestion({
   );
 }
 
+// Un « relais » = une prise de parole continue d'un même expert dans le fil.
+// anchorIndex pointe le message où l'expert prend la parole (là où se trouve le
+// HandoffDivider), pour pouvoir y sauter.
+interface OutlineSegment {
+  anchorIndex: number;
+  agentId: AgentId;
+  snippet: string;
+}
+
+// Construit le sommaire des relais à partir des messages affichés. On ouvre un
+// nouveau segment chaque fois que l'auteur d'une réponse assistant change.
+function buildOutlineSegments(messages: ChatMessage[], fallback: AgentId): OutlineSegment[] {
+  const segments: OutlineSegment[] = [];
+  let last: AgentId | null = null;
+  messages.forEach((m, i) => {
+    if (m.role !== "assistant") return;
+    const speaker: AgentId =
+      m.agentId && m.agentId !== "__synthesis__" ? (m.agentId as AgentId) : fallback;
+    if (speaker !== last) {
+      const snippet = (m.content ?? "")
+        .replace(/[#*_`>~-]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 60);
+      segments.push({ anchorIndex: i, agentId: speaker, snippet });
+      last = speaker;
+    }
+  });
+  return segments;
+}
+
+// Sommaire des relais : panneau latéral repliable qui liste chaque prise de
+// parole d'expert. Cliquer = sauter au segment ; le segment en cours de lecture
+// est surligné (scroll-spy géré par le parent). Purement front, aucune donnée.
+function ConversationOutline({
+  segments,
+  activeIndex,
+  open,
+  onToggle,
+  onJump,
+}: {
+  segments: OutlineSegment[];
+  activeIndex: number;
+  open: boolean;
+  onToggle: () => void;
+  onJump: (anchorIndex: number) => void;
+}) {
+  if (!open) {
+    return (
+      <div
+        style={{
+          flexShrink: 0,
+          width: 40,
+          borderLeft: `1px solid ${C.border}`,
+          background: C.white,
+          display: "flex",
+          justifyContent: "center",
+          paddingTop: 12,
+        }}
+      >
+        <button
+          onClick={onToggle}
+          title="Afficher le fil de la conversation"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 6,
+            borderRadius: 6,
+            display: "flex",
+            color: C.textSub,
+          }}
+        >
+          <Icon name="layers" size={16} color={C.textSub} />
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        flexShrink: 0,
+        width: 224,
+        borderLeft: `1px solid ${C.border}`,
+        background: C.white,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "11px 12px 9px 14px",
+          borderBottom: `1px solid ${C.border}`,
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontSize: 11.5, fontWeight: 800, color: C.textSub, letterSpacing: "0.02em", textTransform: "uppercase" }}>
+          Fil des experts
+        </span>
+        <button
+          onClick={onToggle}
+          title="Replier"
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, display: "flex", color: C.textMute }}
+        >
+          <Icon name="close" size={14} color={C.textMute} />
+        </button>
+      </div>
+      <div style={{ overflowY: "auto", padding: "8px 8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
+        {segments.map((seg, i) => {
+          const a = AGENTS[seg.agentId];
+          const active = seg.anchorIndex === activeIndex;
+          return (
+            <button
+              key={`${seg.anchorIndex}-${i}`}
+              onClick={() => onJump(seg.anchorIndex)}
+              style={{
+                display: "flex",
+                gap: 9,
+                alignItems: "flex-start",
+                textAlign: "left",
+                width: "100%",
+                background: active ? a.bg : "transparent",
+                border: "none",
+                borderLeft: `3px solid ${active ? a.color : "transparent"}`,
+                borderRadius: 8,
+                padding: "7px 9px 7px 8px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "background 0.12s",
+              }}
+              onMouseEnter={(e) => {
+                if (!active) e.currentTarget.style.background = C.bg;
+              }}
+              onMouseLeave={(e) => {
+                if (!active) e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <AgentAvatar agentId={seg.agentId} size={24} />
+              <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: active ? a.color : C.text }}>
+                  {a.firstName}
+                </span>
+                {seg.snippet && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: C.textMute,
+                      lineHeight: 1.35,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                    }}
+                  >
+                    {seg.snippet}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Barre d'experts TOUJOURS visible en mode Accompagné. C'est le vrai levier de
 // changement d'interlocuteur : la feature ne dépend donc pas de la capacité du
 // modèle local à émettre ORIENTER au bon moment (dégradation propre).
@@ -863,10 +1034,44 @@ export function ChatSession({
   // vue à chaque token / changement de hauteur.
   const atBottomRef = useRef(true);
 
+  // Sommaire des relais : refs vers chaque bulle (pour sauter/mesurer), liste des
+  // index-ancres des segments (lue dans le handler de scroll sans redéclencher de
+  // rendu), et le segment surligné (scroll-spy). Le panneau est repliable.
+  const segmentRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const segmentIndicesRef = useRef<number[]>([]);
+  const [activeSegIdx, setActiveSegIdx] = useState(-1);
+  const [outlineOpen, setOutlineOpen] = useState(true);
+
   const handleMessagesScroll = useCallback(() => {
     const el = messagesRef.current;
     if (!el) return;
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    // Scroll-spy : le segment actif est le dernier dont le haut est passé sous la
+    // ligne de flottaison du conteneur. getBoundingClientRect évite toute
+    // dépendance au positionnement CSS.
+    const indices = segmentIndicesRef.current;
+    if (indices.length > 1) {
+      const containerTop = el.getBoundingClientRect().top;
+      let active = indices[0];
+      for (const idx of indices) {
+        const node = segmentRefs.current.get(idx);
+        if (!node) continue;
+        if (node.getBoundingClientRect().top - containerTop <= 24) active = idx;
+      }
+      setActiveSegIdx((prev) => (prev === active ? prev : active));
+    }
+  }, []);
+
+  // Saut vers un relais : on scrolle le conteneur (pas la page) et on coupe le
+  // scroll « collant » pour ne pas être ramené en bas au token suivant.
+  const jumpToSegment = useCallback((anchorIndex: number) => {
+    const el = messagesRef.current;
+    const node = segmentRefs.current.get(anchorIndex);
+    if (!el || !node) return;
+    atBottomRef.current = false;
+    const rel = node.getBoundingClientRect().top - el.getBoundingClientRect().top;
+    el.scrollTo({ top: el.scrollTop + rel - 12, behavior: "smooth" });
+    setActiveSegIdx(anchorIndex);
   }, []);
 
   useEffect(() => {
@@ -1195,6 +1400,15 @@ export function ChatSession({
     : null;
   const displayMessages = inflight ? [...messages, inflight] : messages;
 
+  // Sommaire des relais (mode Accompagné) : un segment par changement d'expert.
+  // On mémorise les index-ancres dans un ref pour que le handler de scroll y
+  // accède sans dépendre du rendu. En dessous de 2 segments, pas de sommaire.
+  const outlineSegments = guided ? buildOutlineSegments(displayMessages, currentAgentId) : [];
+  segmentIndicesRef.current = outlineSegments.map((s) => s.anchorIndex);
+  const showOutline = !isMobile && outlineSegments.length > 1;
+  const activeOutlineIdx =
+    activeSegIdx >= 0 ? activeSegIdx : outlineSegments[outlineSegments.length - 1]?.anchorIndex ?? -1;
+
   // Matérialisation du projet : en mode Accompagné, on ne crée AUCUN projet au
   // démarrage (une description vague donnerait un projet fantôme mal nommé). On
   // le propose seulement quand le cadrage a produit de la matière — ici, 2
@@ -1395,12 +1609,15 @@ export function ChatSession({
         />
       )}
 
+      {/* Zone messages + sommaire des relais (panneau latéral repliable) */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
       {/* Messages */}
       <div
         ref={messagesRef}
         onScroll={handleMessagesScroll}
         style={{
           flex: 1,
+          minWidth: 0,
           overflowY: "auto",
           padding: isMobile ? "16px 12px 12px" : "24px 24px 16px",
           display: "flex",
@@ -1455,7 +1672,14 @@ export function ChatSession({
             orient.agentId !== currentAgentId &&
             !dismissedOrient.has(i);
           return (
-            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div
+              key={i}
+              ref={(node) => {
+                if (node) segmentRefs.current.set(i, node);
+                else segmentRefs.current.delete(i);
+              }}
+              style={{ display: "flex", flexDirection: "column", gap: 10 }}
+            >
               {showHandoff && <HandoffDivider agentId={speaker} />}
               <MessageBubble
                 msg={m}
@@ -1505,6 +1729,17 @@ export function ChatSession({
             <TypingDots agentId={currentAgentId} />
           ))}
         <div />
+      </div>
+
+      {showOutline && (
+        <ConversationOutline
+          segments={outlineSegments}
+          activeIndex={activeOutlineIdx}
+          open={outlineOpen}
+          onToggle={() => setOutlineOpen((o) => !o)}
+          onJump={jumpToSegment}
+        />
+      )}
       </div>
 
       {showProjectBanner && (
