@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 
-// Mock minimal mais fidèle du client Supabase pour tester les routes API sans
-// vraie base. Le vrai client expose un query-builder CHAÎNABLE :
+// Mock minimal mais fidèle du client Supabase pour tester les routes API et les
+// hooks sans vraie base. Le vrai client expose un query-builder CHAÎNABLE :
 //   supabase.from("t").select("...").eq("a", 1).eq("b", 2).single()
 // Chaque méthode renvoie le builder ; les terminaux (`single`/`maybeSingle`) et
 // l'`await` direct du builder (insert/update/delete/select sans single) doivent
@@ -22,32 +22,20 @@ export interface QueryState {
 }
 export type QueryResult = { data?: unknown; error?: unknown };
 export type QueryHandler = (state: QueryState) => QueryResult;
+export type MockUser = ({ id: string } & Record<string, unknown>) | null;
 
-export interface SupabaseMockOptions {
-  // Utilisateur renvoyé par auth.getUser(). `null` = non authentifié.
-  user?: ({ id: string } & Record<string, unknown>) | null;
-  // Décide le résultat d'une requête à partir de la table et des méthodes
-  // appelées. Par défaut : `{ data: null, error: null }`.
-  handler?: QueryHandler;
-}
+const DEFAULT_HANDLER: QueryHandler = () => ({ data: null, error: null });
 
-export interface SupabaseMock {
-  auth: { getUser: ReturnType<typeof vi.fn> };
-  from: ReturnType<typeof vi.fn>;
-  // Toutes les requêtes vues, dans l'ordre — pratique pour asserter les effets
-  // de bord (insert, update…).
-  queries: QueryState[];
-}
-
-export function createSupabaseMock(opts: SupabaseMockOptions = {}): SupabaseMock {
-  const user = opts.user === undefined ? { id: "user-1" } : opts.user;
-  const handler = opts.handler ?? (() => ({ data: null, error: null }));
+// Fabrique interne : un client dont l'utilisateur et le handler sont lus À CHAQUE
+// APPEL via des getters. Cela permet aussi bien un mock figé qu'un mock pilotable
+// (utile quand un module met en cache le client, cf. lib/use-tasks.ts).
+function makeClient(getUser: () => MockUser, getHandler: () => QueryHandler) {
   const queries: QueryState[] = [];
 
   function makeBuilder(table: string) {
     const state: QueryState = { table, calls: [] };
     queries.push(state);
-    const resolve = () => Promise.resolve(handler(state));
+    const resolve = () => Promise.resolve(getHandler()(state));
 
     const builder: Record<string | symbol, unknown> = new Proxy(
       {},
@@ -77,9 +65,55 @@ export function createSupabaseMock(opts: SupabaseMockOptions = {}): SupabaseMock
   }
 
   return {
-    auth: { getUser: vi.fn(async () => ({ data: { user }, error: null })) },
+    auth: { getUser: vi.fn(async () => ({ data: { user: getUser() }, error: null })) },
     from: vi.fn((table: string) => makeBuilder(table)),
     queries,
+  };
+}
+
+export type SupabaseMock = ReturnType<typeof makeClient>;
+
+export interface SupabaseMockOptions {
+  // Utilisateur renvoyé par auth.getUser(). `null` = non authentifié.
+  user?: MockUser;
+  // Décide le résultat d'une requête à partir de la table et des méthodes
+  // appelées. Par défaut : `{ data: null, error: null }`.
+  handler?: QueryHandler;
+}
+
+// Mock figé : idéal pour une route API testée en une passe.
+export function createSupabaseMock(opts: SupabaseMockOptions = {}): SupabaseMock {
+  const user = opts.user === undefined ? { id: "user-1" } : opts.user;
+  const handler = opts.handler ?? DEFAULT_HANDLER;
+  return makeClient(
+    () => user,
+    () => handler,
+  );
+}
+
+// Mock PILOTABLE : le même objet client reste valide entre tests (utile quand un
+// module met en cache `createClient()`), mais on reconfigure user/handler à la
+// volée via les setters.
+export function createControllableSupabase() {
+  let user: MockUser = { id: "user-1" };
+  let handler: QueryHandler = DEFAULT_HANDLER;
+  const client = makeClient(
+    () => user,
+    () => handler,
+  );
+  return {
+    client,
+    setUser: (u: MockUser) => {
+      user = u;
+    },
+    setHandler: (h: QueryHandler) => {
+      handler = h;
+    },
+    reset: () => {
+      user = { id: "user-1" };
+      handler = DEFAULT_HANDLER;
+      client.queries.length = 0;
+    },
   };
 }
 
