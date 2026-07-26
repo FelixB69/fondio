@@ -3,8 +3,16 @@ import { utils as xlsxUtils, write as xlsxWrite } from "xlsx";
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import PDFDocument from "pdfkit";
 import type { Artifact } from "@/lib/data";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+
+// Garde-fous anti-abus : la génération PDF/xlsx/docx est coûteuse en CPU. On
+// borne la taille de l'artefact reçu pour qu'une requête ne puisse pas saturer
+// le serveur (des milliers de lignes ou un markdown géant).
+const MAX_ROWS = 5000;
+const MAX_COLS = 100;
+const MAX_MARKDOWN_LENGTH = 500_000;
 
 type TableFormat = "csv" | "xlsx" | "json";
 type DocFormat = "md" | "txt" | "pdf" | "docx";
@@ -29,6 +37,14 @@ const MIME: Record<Format, string> = {
 };
 
 export async function POST(req: Request) {
+  // Endpoint réservé aux utilisateurs authentifiés : la conversion de documents
+  // est une opération serveur coûteuse, on ne l'expose pas au tout-venant.
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+
   let body: DownloadRequest;
   try {
     body = (await req.json()) as DownloadRequest;
@@ -39,6 +55,11 @@ export async function POST(req: Request) {
   const { artifact, format } = body;
   if (!artifact || !format) {
     return NextResponse.json({ error: "artifact et format requis." }, { status: 400 });
+  }
+
+  const sizeError = validateArtifactSize(artifact);
+  if (sizeError) {
+    return NextResponse.json({ error: sizeError }, { status: 400 });
   }
 
   const isTable = artifact.kind === "table";
@@ -68,6 +89,30 @@ export async function POST(req: Request) {
       "Content-Length": String(buffer.length),
     },
   });
+}
+
+// Rejette les artefacts hors bornes AVANT tout rendu (voir les constantes en
+// tête de fichier). Renvoie un message d'erreur, ou null si tout est bon.
+function validateArtifactSize(artifact: Artifact): string | null {
+  if (artifact.kind === "table") {
+    if (!Array.isArray(artifact.headers) || !Array.isArray(artifact.rows)) {
+      return "Tableau invalide.";
+    }
+    if (artifact.headers.length > MAX_COLS) {
+      return `Trop de colonnes (max ${MAX_COLS}).`;
+    }
+    if (artifact.rows.length > MAX_ROWS) {
+      return `Trop de lignes (max ${MAX_ROWS}).`;
+    }
+  } else if (artifact.kind === "document") {
+    if (typeof artifact.markdown !== "string") {
+      return "Document invalide.";
+    }
+    if (artifact.markdown.length > MAX_MARKDOWN_LENGTH) {
+      return "Document trop volumineux.";
+    }
+  }
+  return null;
 }
 
 async function render(artifact: Artifact, format: Format): Promise<Buffer> {

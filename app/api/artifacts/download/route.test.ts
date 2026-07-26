@@ -1,6 +1,23 @@
-import { describe, expect, it } from "vitest";
-import { POST } from "./route";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createSupabaseMock, type SupabaseMock } from "@/test/helpers/supabase";
 import type { Artifact } from "@/lib/data";
+
+// La route exige désormais une session : on mocke le client Supabase et on
+// authentifie par défaut. Le test "401" fournit explicitement user: null.
+vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
+
+import { createClient } from "@/lib/supabase/server";
+import { POST } from "./route";
+
+const createClientMock = vi.mocked(createClient);
+function useSupabase(mock: SupabaseMock) {
+  createClientMock.mockReturnValue(mock as unknown as ReturnType<typeof createClient>);
+}
+
+beforeEach(() => {
+  createClientMock.mockReset();
+  useSupabase(createSupabaseMock()); // authentifié (user-1) par défaut
+});
 
 function post(body: unknown): Request {
   return new Request("http://localhost/api/artifacts/download", {
@@ -26,8 +43,25 @@ const doc: Extract<Artifact, { kind: "document" }> = {
 };
 
 describe("POST /api/artifacts/download — validation", () => {
+  it("renvoie 401 quand non authentifié", async () => {
+    useSupabase(createSupabaseMock({ user: null }));
+    const res = await POST(post({ artifact: table, format: "csv" }));
+    expect(res.status).toBe(401);
+  });
+
   it("renvoie 400 sur un JSON invalide", async () => {
     const res = await POST(post("{ pas du json"));
+    expect(res.status).toBe(400);
+  });
+
+  it("renvoie 400 quand le tableau dépasse la limite de lignes", async () => {
+    const huge: Artifact = {
+      kind: "table",
+      title: "Trop grand",
+      headers: ["A"],
+      rows: Array.from({ length: 5001 }, () => ["x"]),
+    };
+    const res = await POST(post({ artifact: huge, format: "csv" }));
     expect(res.status).toBe(400);
   });
 
