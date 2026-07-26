@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { marked } from "marked";
+import { escapeHtmlAttr, markdownToSafeHtml } from "@/lib/markdown";
 import {
   AGENTS,
   AgentId,
@@ -398,11 +398,14 @@ function renderMarkdownWithCitations(
     processed = content.replace(/\[(\d+)\]/g, (match, num) => {
       const src = sources[parseInt(num, 10) - 1];
       if (!src) return match;
-      const host = hostname(src.url);
-      return `<a href="${src.url}" target="_blank" rel="noopener noreferrer" title="${src.title}" style="color:${color};font-weight:600;text-decoration:underline;white-space:nowrap">${host}</a>`;
+      // src.url / src.title viennent des résultats de recherche web (Tavily),
+      // donc de contenu tiers non maîtrisé : on échappe avant de les insérer
+      // dans des attributs, et markdownToSafeHtml (DOMPurify) assainit ensuite.
+      const host = escapeHtmlAttr(hostname(src.url));
+      return `<a href="${escapeHtmlAttr(src.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(src.title)}" style="color:${color};font-weight:600;text-decoration:underline;white-space:nowrap">${host}</a>`;
     });
   }
-  return marked.parse(processed, { async: false }) as string;
+  return markdownToSafeHtml(processed);
 }
 
 // Bloc "Sources" affiché sous la réponse : liste les pages consultées sous forme

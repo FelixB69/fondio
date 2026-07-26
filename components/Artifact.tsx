@@ -6,7 +6,7 @@
 // `onConvertToTask` est fourni.
 
 import { useState } from "react";
-import { marked } from "marked";
+import { markdownToSafeHtml } from "@/lib/markdown";
 import type { Artifact } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { Icon } from "./Icon";
@@ -260,7 +260,7 @@ function ArtifactTable({
 }
 
 function ArtifactMarkdown({ markdown }: { markdown: string }) {
-  const html = marked.parse(markdown, { async: false }) as string;
+  const html = markdownToSafeHtml(markdown);
   return (
     <div
       className="fnd-md"
