@@ -17,6 +17,10 @@ import { gatherWebContext } from "@/lib/web-search";
 
 export const runtime = "nodejs";
 
+// Borne la taille d'un message utilisateur : au-delà, on refuse plutôt que de
+// laisser gonfler le prompt (coût LLM) et le JSONB de session.
+const MAX_MESSAGE_LENGTH = 20_000;
+
 interface ChatRequest {
   sessionId: string;
   userMessage: string;
@@ -34,6 +38,9 @@ export async function POST(req: Request) {
 
   if (!sessionId || (!regenerate && !userMessage?.trim())) {
     return NextResponse.json({ error: "sessionId et userMessage requis." }, { status: 400 });
+  }
+  if (typeof userMessage === "string" && userMessage.length > MAX_MESSAGE_LENGTH) {
+    return NextResponse.json({ error: "Message trop long." }, { status: 400 });
   }
 
   const supabase = createClient();

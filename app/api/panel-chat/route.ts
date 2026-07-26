@@ -16,6 +16,10 @@ import { gatherWebContext } from "@/lib/web-search";
 
 export const runtime = "nodejs";
 
+// Borne la taille d'un message utilisateur (cf. /api/chat) : évite de gonfler
+// les prompts (N agents + synthèse) et le JSONB de session.
+const MAX_MESSAGE_LENGTH = 20_000;
+
 // Orchestration du panel multi-agents EN STREAMING, en UN SEUL appel.
 //
 // Avant : le client faisait N+1 requêtes séquentielles (une par agent + synthèse),
@@ -50,6 +54,9 @@ export async function POST(req: Request) {
 
   if (!sessionId || !userMessage?.trim()) {
     return NextResponse.json({ error: "sessionId et userMessage requis." }, { status: 400 });
+  }
+  if (userMessage.length > MAX_MESSAGE_LENGTH) {
+    return NextResponse.json({ error: "Message trop long." }, { status: 400 });
   }
 
   const supabase = createClient();
