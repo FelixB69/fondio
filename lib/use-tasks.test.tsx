@@ -76,6 +76,7 @@ function makeTask(over: Partial<Task> = {}): Task {
     source_agent_id: null,
     created_at: "2026-07-01T00:00:00.000Z",
     completed_at: null,
+    updated_at: "2026-07-01T00:00:00.000Z",
     comments: [],
     ...over,
   };

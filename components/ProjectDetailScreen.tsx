@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PROJECT_TYPES, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
+import type { DashboardAction } from "@/lib/project-dashboard";
 import { Project, ProjectSessionRow, STAGES, StageId, stageMeta } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
@@ -114,6 +115,25 @@ export function ProjectDetailScreen({
   const updateStage = async (stage: StageId) => {
     await supabase.from("projects").update({ stage }).eq("id", projectId);
     setProject((p) => (p ? { ...p, stage } : null));
+  };
+
+  // Traduit les intentions du tableau de bord en navigation. Le cockpit ne
+  // connaît ni le routeur ni les écrans : il ne fait que dire ce qu'il veut.
+  const runAction = (action: DashboardAction) => {
+    switch (action.kind) {
+      case "tasks":
+        setParams({ tab: "taches", filter: action.filter }, "push");
+        break;
+      case "agenda":
+        router.push("/agenda");
+        break;
+      case "newSession":
+        if (project) onStartSession(project.id, project.project_type);
+        break;
+      case "nextStage":
+        updateStage(action.stage);
+        break;
+    }
   };
 
   if (!projectLoading && !project) {
@@ -332,7 +352,13 @@ export function ProjectDetailScreen({
         {projectLoading && <div style={{ color: C.textMute, fontSize: 13 }}>Chargement…</div>}
 
         {!projectLoading && project && tab === "overview" && (
-          <ProjectOverviewTab project={project} sessions={sessions} onOpenSession={onOpenSession} />
+          <ProjectOverviewTab
+            project={project}
+            sessions={sessions}
+            onOpenSession={onOpenSession}
+            onAction={runAction}
+            onStageChange={updateStage}
+          />
         )}
 
         {!projectLoading && project && tab === "taches" && (

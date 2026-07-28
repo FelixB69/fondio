@@ -13,7 +13,7 @@ import { Task, TaskComment, TaskPriority, TaskStatus } from "./data";
 import { createClient } from "./supabase/client";
 
 const TASK_COLS =
-  "id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at, comments";
+  "id, session_id, project_id, content, status, priority, start_date, due_date, source_agent_id, created_at, completed_at, updated_at, comments";
 
 // Clé SWR globale : tous les consommateurs partagent le même cache.
 export const TASKS_KEY = "tasks";

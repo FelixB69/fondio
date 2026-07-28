@@ -143,6 +143,11 @@ export interface Task {
   source_agent_id: AgentId | null;
   created_at: string;
   completed_at: string | null;
+  // Dernière modification, horodatée par un trigger Postgres (jamais par le
+  // client). Alimente la détection d'inactivité d'un projet et l'obsolescence
+  // de sa synthèse : contrairement à completed_at, elle bouge aussi quand on
+  // renomme une tâche, qu'on la replanifie ou qu'on la passe « en cours ».
+  updated_at: string;
   comments: TaskComment[];
 }
 
