@@ -1,4 +1,4 @@
-import { ChatMessage, ProjectType, TaskStatus } from "./data";
+import { AgentId, ChatMessage, ProjectType, TaskStatus } from "./data";
 import { GlossaryEntry } from "./glossary";
 
 export interface Project {
@@ -13,6 +13,20 @@ export interface Project {
   glossary?: GlossaryEntry[];
   created_at: string;
   updated_at: string;
+}
+
+// Session telle que l'écran projet la charge : assez pour la lister et pour
+// alimenter computeStats. Partagée entre ProjectDetailScreen (qui la charge) et
+// ProjectOverviewTab (qui l'affiche), d'où sa place ici plutôt que dans un
+// composant — c'est une forme de données, pas du JSX.
+export interface ProjectSessionRow {
+  id: string;
+  agent_id: AgentId;
+  title: string | null;
+  challenger_mode: boolean;
+  messages: ChatMessage[];
+  updated_at: string;
+  panel_agent_ids?: string[] | null;
 }
 
 export interface Stage {
