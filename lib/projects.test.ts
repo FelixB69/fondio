@@ -4,6 +4,7 @@ import {
   buildProjectStateInstruction,
   computeStats,
   nextStage,
+  parseProjectSummary,
   stageIndex,
   stageMeta,
   XP_RULES,
@@ -101,5 +102,41 @@ describe("buildProjectStateInstruction", () => {
   it("retombe sur la 1re étape pour un stage inconnu", () => {
     const block = buildProjectStateInstruction({ name: "X", stage: "ideation", tasks: [] });
     expect(block).toContain("Cadrage (1/6)");
+  });
+});
+
+describe("parseProjectSummary", () => {
+  const valid = {
+    text: "Votre projet avance bien.",
+    provider: "local",
+    providerLabel: "Mistral (local)",
+    generated_at: "2026-07-28T10:12:00.000Z",
+  };
+
+  it("accepte une synthèse bien formée", () => {
+    expect(parseProjectSummary(valid)).toEqual(valid);
+  });
+
+  it("rejette l'absence de synthèse", () => {
+    expect(parseProjectSummary(null)).toBeNull();
+    expect(parseProjectSummary(undefined)).toBeNull();
+  });
+
+  it("rejette une valeur qui n'est pas un objet", () => {
+    expect(parseProjectSummary("du texte")).toBeNull();
+    expect(parseProjectSummary(42)).toBeNull();
+  });
+
+  it("rejette un texte vide ou absent", () => {
+    expect(parseProjectSummary({ ...valid, text: "   " })).toBeNull();
+    expect(parseProjectSummary({ ...valid, text: undefined })).toBeNull();
+  });
+
+  it("rejette un provider inconnu", () => {
+    expect(parseProjectSummary({ ...valid, provider: "openai" })).toBeNull();
+  });
+
+  it("rejette une date de génération illisible", () => {
+    expect(parseProjectSummary({ ...valid, generated_at: "hier" })).toBeNull();
   });
 });

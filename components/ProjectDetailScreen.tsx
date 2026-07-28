@@ -11,7 +11,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PROJECT_TYPES, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import type { DashboardAction } from "@/lib/project-dashboard";
-import { Project, ProjectSessionRow, STAGES, StageId, stageMeta } from "@/lib/projects";
+import {
+  parseProjectSummary,
+  Project,
+  ProjectSessionRow,
+  STAGES,
+  StageId,
+  stageMeta,
+} from "@/lib/projects";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import { useTasks } from "@/lib/use-tasks";
@@ -85,7 +92,7 @@ export function ProjectDetailScreen({
     const [projRes, sessRes] = await Promise.all([
       supabase
         .from("projects")
-        .select("id, name, icon, color, project_type, stage, glossary, created_at, updated_at")
+        .select("id, name, icon, color, project_type, stage, glossary, summary, created_at, updated_at")
         .eq("id", projectId)
         .single(),
       supabase
@@ -95,7 +102,10 @@ export function ProjectDetailScreen({
         .is("archived_at", null)
         .order("updated_at", { ascending: false }),
     ]);
-    setProject((projRes.data as Project | null) ?? null);
+    const row = projRes.data as (Project & { summary?: unknown }) | null;
+    // Le JSONB arrive en `unknown` : on le valide avant de le laisser entrer
+    // dans l'état, plutôt que de propager une forme douteuse jusqu'à l'UI.
+    setProject(row ? { ...row, summary: parseProjectSummary(row.summary) } : null);
     setSessions((sessRes.data ?? []) as ProjectSessionRow[]);
     setProjectLoading(false);
   }, [supabase, projectId]);
@@ -358,6 +368,7 @@ export function ProjectDetailScreen({
             onOpenSession={onOpenSession}
             onAction={runAction}
             onStageChange={updateStage}
+            onSummaryGenerated={(summary) => setProject((p) => (p ? { ...p, summary } : null))}
           />
         )}
 

@@ -16,6 +16,7 @@ import { buildDashboard, DashboardAction, DashboardAlert } from "@/lib/project-d
 import {
   Project,
   ProjectSessionRow,
+  ProjectSummary,
   STAGES,
   StageId,
   nextStage,
@@ -43,12 +44,14 @@ export function ProjectOverviewTab({
   onOpenSession,
   onAction,
   onStageChange,
+  onSummaryGenerated,
 }: {
   project: Project;
   sessions: ProjectSessionRow[];
   onOpenSession: (sessionId: string) => void;
   onAction: (action: DashboardAction) => void;
   onStageChange: (stage: StageId) => void;
+  onSummaryGenerated: (summary: ProjectSummary) => void;
 }) {
   const isMobile = useIsMobile();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -278,6 +281,14 @@ export function ProjectOverviewTab({
           )}
         </Section>
       )}
+
+      <SummaryCard
+        projectId={project.id}
+        summary={project.summary ?? null}
+        stale={dash.summaryStale}
+        disabled={dash.isBlank}
+        onGenerated={onSummaryGenerated}
+      />
 
       {openTask && (
         <TaskDetailModal
@@ -553,6 +564,133 @@ function UpcomingRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
       {prio && <Badge label={prio.label} color={prio.color} bg={prio.bg} icon="warning" />}
       {due && <Badge label={due.label} color={due.color} bg={due.bg} icon="clock" />}
     </button>
+  );
+}
+
+function SummaryCard({
+  projectId,
+  summary,
+  stale,
+  disabled,
+  onGenerated,
+}: {
+  projectId: string;
+  summary: ProjectSummary | null;
+  stale: boolean;
+  disabled: boolean;
+  onGenerated: (s: ProjectSummary) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // La synthèse tout juste produite est affichée sans attendre que le parent
+  // ait répercuté `project.summary` : la carte reste correcte toute seule.
+  const [generated, setGenerated] = useState<ProjectSummary | null>(null);
+
+  const shown = generated ?? summary;
+  // Ce qu'on vient de générer ne peut pas être obsolète.
+  const showStale = stale && !generated;
+
+  // Jamais de génération automatique au chargement : un appel LLM coûte du
+  // temps (et de l'argent en BYOK/cloud), il part d'un clic explicite.
+  const generate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/project-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(typeof body?.error === "string" ? body.error : "Génération impossible.");
+      } else {
+        setGenerated(body as ProjectSummary);
+        onGenerated(body as ProjectSummary);
+      }
+    } catch {
+      setError("Génération impossible : le serveur n'a pas répondu.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        background: C.white,
+        border: `1px solid ${C.border}`,
+        borderRadius: 12,
+        padding: "16px 18px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <Icon name="sparkles" size={14} color={C.navy} />
+        <span style={{ fontSize: 14.5, fontWeight: 800, color: C.text, letterSpacing: "-0.01em" }}>
+          Où en est mon projet ?
+        </span>
+        {showStale && (
+          <span
+            style={{
+              background: C.bg,
+              color: C.textMute,
+              border: `1px solid ${C.border}`,
+              borderRadius: 5,
+              padding: "2px 6px",
+              fontSize: 10,
+              fontWeight: 700,
+            }}
+          >
+            Peut être obsolète
+          </span>
+        )}
+      </div>
+
+      {shown ? (
+        <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.6, marginTop: 10, whiteSpace: "pre-wrap" }}>
+          {shown.text}
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: C.textSub, lineHeight: 1.55, marginTop: 8, maxWidth: 560 }}>
+          Clara relit vos tâches, vos échanges et votre étape, et vous fait un point en clair.
+        </div>
+      )}
+
+      {error && (
+        <div style={{ fontSize: 12.5, color: "#DC2626", marginTop: 10, lineHeight: 1.45 }}>{error}</div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+        <button
+          onClick={generate}
+          disabled={busy || disabled}
+          title={disabled ? "Ce projet n'a encore ni tâche ni échange à synthétiser." : undefined}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            background: busy || disabled ? C.border : C.navy,
+            color: "white",
+            border: "none",
+            borderRadius: 9,
+            padding: "8px 14px",
+            fontSize: 12.5,
+            fontWeight: 700,
+            cursor: busy || disabled ? "default" : "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          <Icon name={busy ? "refresh" : "sparkles"} size={12} color="white" />
+          {busy ? "Clara relit votre projet…" : shown ? "Refaire le point" : "Faire le point"}
+        </button>
+        {shown && !busy && (
+          <span style={{ fontSize: 11.5, color: C.textMute }}>
+            Établi {formatRelative(shown.generated_at, { absoluteAfterWeek: true }).toLowerCase()} ·{" "}
+            {shown.providerLabel}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

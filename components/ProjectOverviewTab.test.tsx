@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Task } from "@/lib/data";
 import type { DashboardAction } from "@/lib/project-dashboard";
-import type { Project, ProjectSessionRow, StageId } from "@/lib/projects";
+import type { Project, ProjectSessionRow, ProjectSummary, StageId } from "@/lib/projects";
 import { addDaysYmd, inDaysStr, todayStr } from "@/lib/tasks";
 import { makeTask, makeUseTasks } from "@/test/helpers/use-tasks";
 
@@ -49,6 +49,7 @@ interface Props {
   onOpenSession: (sessionId: string) => void;
   onAction: (action: DashboardAction) => void;
   onStageChange: (stage: StageId) => void;
+  onSummaryGenerated: (summary: ProjectSummary) => void;
 }
 
 function renderTab(over: Partial<Props> = {}): Props {
@@ -58,6 +59,7 @@ function renderTab(over: Partial<Props> = {}): Props {
     onOpenSession: vi.fn(),
     onAction: vi.fn(),
     onStageChange: vi.fn(),
+    onSummaryGenerated: vi.fn(),
     ...over,
   };
   render(<ProjectOverviewTab {...props} />);
@@ -271,5 +273,87 @@ describe("ProjectOverviewTab — glossaire", () => {
   it("masque le bloc quand le glossaire est vide", () => {
     renderTab({ project: makeProject({ glossary: [] }) });
     expect(screen.queryByText(/^Glossaire \(/)).not.toBeInTheDocument();
+  });
+});
+
+describe("ProjectOverviewTab — synthèse « Où en est mon projet ? »", () => {
+  const summary: ProjectSummary = {
+    text: "Votre projet est en développement et avance régulièrement.",
+    provider: "local",
+    providerLabel: "Mistral (local)",
+    generated_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+  };
+
+  function mockFetch(res: { ok: boolean; body: unknown }) {
+    const fn = vi.fn(async () => ({
+      ok: res.ok,
+      json: async () => res.body,
+    }));
+    vi.stubGlobal("fetch", fn);
+    return fn;
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("propose de faire le point quand aucune synthèse n'existe", () => {
+    renderTab();
+    expect(screen.getByRole("button", { name: /Faire le point/ })).toBeEnabled();
+  });
+
+  it("désactive le bouton sur un projet vierge : il n'y a rien à synthétiser", () => {
+    useTasksMock.mockReturnValue(makeUseTasks([]));
+    renderTab({ sessions: [] });
+    expect(screen.getByRole("button", { name: /Faire le point/ })).toBeDisabled();
+  });
+
+  it("affiche la synthèse existante et le modèle qui l'a produite", () => {
+    renderTab({ project: makeProject({ summary }) });
+    expect(screen.getByText(/avance régulièrement/)).toBeInTheDocument();
+    expect(screen.getByText(/Mistral \(local\)/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Refaire le point/ })).toBeInTheDocument();
+  });
+
+  it("signale une synthèse dépassée par l'activité du projet", () => {
+    // La tâche a bougé il y a 1 jour, la synthèse date de 2 jours.
+    useTasksMock.mockReturnValue(
+      makeUseTasks([makeTask({ id: "a", updated_at: new Date(Date.now() - 86_400_000).toISOString() })]),
+    );
+    renderTab({ project: makeProject({ summary }) });
+    expect(screen.getByText("Peut être obsolète")).toBeInTheDocument();
+  });
+
+  it("ne signale rien quand rien n'a bougé depuis la génération", () => {
+    const old = new Date(Date.now() - 5 * 86_400_000).toISOString();
+    useTasksMock.mockReturnValue(
+      makeUseTasks([makeTask({ id: "a", created_at: old, updated_at: old })]),
+    );
+    // La session aussi doit être antérieure : c'est une activité comme une autre.
+    renderTab({ project: makeProject({ summary }), sessions: [makeSession({ updated_at: old })] });
+    expect(screen.queryByText("Peut être obsolète")).not.toBeInTheDocument();
+  });
+
+  it("génère la synthèse et la remonte au parent", async () => {
+    const user = userEvent.setup();
+    const fresh: ProjectSummary = { ...summary, text: "Tout est prêt pour la recette." };
+    const fetchMock = mockFetch({ ok: true, body: fresh });
+    const { onSummaryGenerated } = renderTab();
+
+    await user.click(screen.getByRole("button", { name: /Faire le point/ }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/project-summary",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(await screen.findByText(/Tout est prêt pour la recette/)).toBeInTheDocument();
+    expect(onSummaryGenerated).toHaveBeenCalledWith(fresh);
+  });
+
+  it("affiche l'erreur renvoyée par la route", async () => {
+    const user = userEvent.setup();
+    mockFetch({ ok: false, body: { error: "Ollama injoignable." } });
+    renderTab();
+
+    await user.click(screen.getByRole("button", { name: /Faire le point/ }));
+    expect(await screen.findByText("Ollama injoignable.")).toBeInTheDocument();
   });
 });

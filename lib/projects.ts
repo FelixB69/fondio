@@ -15,6 +15,26 @@ export interface ProjectSummary {
   generated_at: string;
 }
 
+const LLM_PROVIDERS: readonly string[] = ["local", "cloud", "byok"];
+
+// Garde de lecture du JSONB `projects.summary`, qui arrive en `unknown` : on
+// renvoie null sur toute forme inattendue plutôt que de laisser une valeur
+// douteuse traverser l'UI (ou pire, servir de base au calcul d'obsolescence).
+export function parseProjectSummary(raw: unknown): ProjectSummary | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.text !== "string" || !o.text.trim()) return null;
+  if (typeof o.provider !== "string" || !LLM_PROVIDERS.includes(o.provider)) return null;
+  if (typeof o.providerLabel !== "string" || !o.providerLabel) return null;
+  if (typeof o.generated_at !== "string" || Number.isNaN(Date.parse(o.generated_at))) return null;
+  return {
+    text: o.text,
+    provider: o.provider as LLMProvider,
+    providerLabel: o.providerLabel,
+    generated_at: o.generated_at,
+  };
+}
+
 export interface Project {
   id: string;
   name: string;
