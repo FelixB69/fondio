@@ -825,7 +825,7 @@ export function MultiAgentSession({
   }, []);
 
   useEffect(() => {
-    refreshStatus();
+    refreshStatus(false);
   }, [refreshStatus]);
 
   // Pré-remplit les livrables déjà transformés en tâches (anti-doublon).

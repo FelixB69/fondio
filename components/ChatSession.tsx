@@ -1146,9 +1146,9 @@ export function ChatSession({
     setFilterAgentId(null);
   }, [sessionId, initialMessages, initialChallenger, agentId]);
 
-  // Interroge Ollama + récupère la config réelle des modèles. Local d'abord :
-  // si Ollama répond, on bascule sur local (objectif confidentialité). Réutilisé
-  // par le ModelSelector pour son bouton « re-vérifier ».
+  // Interroge Ollama + récupère la config réelle des modèles. Cloud par défaut :
+  // on ne bascule sur local que sur action explicite (clic sur « Modèle local »
+  // ou bouton « re-vérifier » du ModelSelector), jamais automatiquement au montage.
   const refreshStatus = useCallback(async (selectLocalIfUp = true) => {
     setStatusRefreshing(true);
     try {
@@ -1164,7 +1164,7 @@ export function ChatSession({
   }, []);
 
   useEffect(() => {
-    refreshStatus();
+    refreshStatus(false);
   }, [refreshStatus]);
 
   // Pré-remplit le badge "déjà tâche" avec les livrables qui sont déjà des tasks
