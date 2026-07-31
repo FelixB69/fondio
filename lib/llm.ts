@@ -2,8 +2,8 @@
 // (API EU, tier gratuit) si Ollama est injoignable ou si le modèle n'existe pas.
 
 import { modelLabel } from "./models";
+import { OLLAMA_AUTH_ERROR, ollamaBaseUrl, ollamaFetch, ollamaHint } from "./ollama";
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3";
 const OLLAMA_ARTIFACT_MODEL = process.env.OLLAMA_ARTIFACT_MODEL ?? "qwen2.5-coder:7b";
 // Modèle dédié au tool-calling : il DOIT savoir gérer les outils (llama3 ne sait
@@ -70,7 +70,11 @@ function isOllamaUnavailable(e: unknown): boolean {
     msg.includes("fetch failed") ||
     msg.includes("ENOTFOUND") ||
     msg.includes("model not found") ||
-    msg.includes("OLLAMA_404")
+    msg.includes("OLLAMA_404") ||
+    // Serveur distant derrière un reverse proxy : le proxy répond alors que
+    // Ollama, lui, est arrêté ou saturé. C'est bien une indisponibilité → repli
+    // cloud, contrairement au 401/403 (identifiants) qu'on laisse remonter.
+    /Ollama( tools)? (502|503|504)/.test(msg)
   );
 }
 
@@ -112,9 +116,8 @@ export async function callChatModel(
 }
 
 async function callOllamaJson(messages: LLMMessage[], opts?: CallOptions): Promise<string> {
-  const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+  const res = await ollamaFetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: pickOllamaModel(opts),
       stream: false,
@@ -141,8 +144,8 @@ async function callMistralJson(messages: LLMMessage[], opts?: CallOptions): Prom
   const apiKey = getMistralApiKey();
   if (!apiKey) {
     throw new Error(
-      `Ollama injoignable sur ${OLLAMA_BASE_URL} et MISTRAL_API_KEY non configurée. ` +
-        `Lancez \`ollama serve\` ou ajoutez MISTRAL_API_KEY dans .env.`,
+      `Ollama injoignable sur ${ollamaBaseUrl()} et MISTRAL_API_KEY non configurée. ` +
+        `${ollamaHint()} Ou ajoutez MISTRAL_API_KEY dans .env.`,
     );
   }
   const res = await fetch(`${MISTRAL_BASE_URL}/chat/completions`, {
@@ -801,9 +804,8 @@ function toMistralToolMessages(messages: ToolLoopMessage[]) {
 }
 
 async function callOllamaTools(messages: ToolLoopMessage[], tools: ToolDef[]): Promise<ToolTurnResult> {
-  const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+  const res = await ollamaFetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: OLLAMA_TOOL_MODEL,
       messages: toOllamaToolMessages(messages),
@@ -927,9 +929,8 @@ export async function callChatModelStream(
     return { provider: "cloud", providerLabel: cloudLabel(), data };
   }
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+    const res = await ollamaFetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: OLLAMA_MODEL, stream: true, think: false, messages }),
     });
     if (res.status === 404) throw new Error("OLLAMA_404 model not found");
@@ -954,8 +955,8 @@ async function callMistralStream(messages: LLMMessage[]): Promise<AsyncIterable<
   const apiKey = getMistralApiKey();
   if (!apiKey) {
     throw new Error(
-      `Ollama injoignable sur ${OLLAMA_BASE_URL} et MISTRAL_API_KEY non configurée. ` +
-        `Lancez \`ollama serve\` ou ajoutez MISTRAL_API_KEY dans .env.`,
+      `Ollama injoignable sur ${ollamaBaseUrl()} et MISTRAL_API_KEY non configurée. ` +
+        `${ollamaHint()} Ou ajoutez MISTRAL_API_KEY dans .env.`,
     );
   }
   const res = await fetch(`${MISTRAL_BASE_URL}/chat/completions`, {
@@ -1034,10 +1035,16 @@ async function* mistralStreamToText(
 export function describeLLMError(e: unknown): string {
   const msg = e instanceof Error ? e.message : "Erreur inconnue";
   if (msg === "OLLAMA_LOCAL_FORCED_UNAVAILABLE") {
-    return `OLLAMA_UNAVAILABLE: Ollama n'est pas accessible sur ${OLLAMA_BASE_URL}. Lance \`ollama serve\` ou bascule sur Cloud.`;
+    return `OLLAMA_UNAVAILABLE: Ollama n'est pas accessible sur ${ollamaBaseUrl()}. ${ollamaHint()}`;
+  }
+  // Authentification refusée par le serveur Ollama : ce n'est pas une panne mais
+  // une config à corriger, donc on le dit explicitement au lieu de suggérer un
+  // redémarrage qui n'y changera rien.
+  if (msg.startsWith(OLLAMA_AUTH_ERROR)) {
+    return `Le serveur Ollama (${ollamaBaseUrl()}) a refusé les identifiants. Vérifiez OLLAMA_USER / OLLAMA_PASSWORD.`;
   }
   if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
-    return `Ollama n'est pas démarré sur ${OLLAMA_BASE_URL}. Lance \`ollama serve\` ou bascule sur Cloud.`;
+    return `Ollama n'est pas démarré sur ${ollamaBaseUrl()}. ${ollamaHint()}`;
   }
   return msg;
 }

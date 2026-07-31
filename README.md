@@ -43,6 +43,22 @@ ollama pull llama3.1                # recherche web (tool-calling ; llama3 ne su
 
 Sans Ollama joignable, l'app bascule sur Mistral cloud si `MISTRAL_API_KEY` est fournie.
 
+**Ollama sur un serveur distant** (nécessaire si Fondio est déployé sur Vercel : un
+serveur Vercel ne peut pas joindre le `localhost` de votre machine). Exposez Ollama en
+HTTPS derrière un reverse proxy protégé par Basic Auth, puis renseignez :
+
+```env
+OLLAMA_BASE_URL=https://ai.exemple.fr   # OLLAMA_URL accepté comme alias
+OLLAMA_USER=...
+OLLAMA_PASSWORD=...
+OLLAMA_MODEL=qwen2.5:1.5b               # un modèle réellement installé sur ce serveur
+```
+
+Les trois modèles (`OLLAMA_MODEL`, `OLLAMA_ARTIFACT_MODEL`, `OLLAMA_TOOL_MODEL`) doivent
+exister sur le serveur visé, sinon Ollama répond 404 et Fondio bascule sur le cloud.
+Sans `OLLAMA_USER`/`OLLAMA_PASSWORD`, aucun en-tête d'authentification n'est envoyé
+(comportement local inchangé).
+
 ### 4. Lancer
 
 ```bash

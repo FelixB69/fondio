@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { BYOK_CHAT_MODELS, MODELS, byokDisplayLabel, type BYOKProviderId } from "@/lib/llm";
 import { createClient } from "@/lib/supabase/server";
 import type { ModelStatus } from "@/lib/models";
-
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+import { OLLAMA_AUTH_ERROR, isLocalOllama, ollamaFetch } from "@/lib/ollama";
 
 export const runtime = "nodejs";
+
+// Un serveur distant paie la latence réseau (DNS + TLS + proxy) : 2 s suffisent
+// en local mais font passer un serveur sain pour indisponible à l'autre bout.
+const PROBE_TIMEOUT_MS = isLocalOllama() ? 2000 : 5000;
 
 // Renvoie l'état d'Ollama, la config réelle des modèles, ET (si l'utilisateur
 // est authentifié) son statut BYOK — pour que ModelSelector affiche le bon
@@ -13,12 +16,18 @@ export const runtime = "nodejs";
 export async function GET() {
   let available = false;
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
-      signal: AbortSignal.timeout(2000),
+    const res = await ollamaFetch("/api/tags", {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     available = res.ok;
-  } catch {
+  } catch (e) {
     available = false;
+    // Serveur éteint = cas normal, on reste silencieux. Identifiants refusés =
+    // erreur de configuration : on la trace, sinon elle est indiscernable d'un
+    // serveur arrêté côté UI.
+    if (e instanceof Error && e.message.startsWith(OLLAMA_AUTH_ERROR)) {
+      console.warn("[ollama-status]", e.message);
+    }
   }
 
   let byok: ModelStatus["byok"] = null;
