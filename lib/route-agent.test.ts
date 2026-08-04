@@ -56,3 +56,21 @@ describe("pickEntryAgent", () => {
     expect(pickEntryAgent("C'est quoi mettre en ligne un site ?")).toBe("teacher");
   });
 });
+
+describe("pickEntryAgent — Maquettiste", () => {
+  it("route vers Milo quand l'utilisateur veut VOIR", () => {
+    expect(pickEntryAgent("je veux une maquette de mon site")).toBe("prototyper");
+    expect(pickEntryAgent("montrez-moi à quoi ça ressemble")).toBe("prototyper");
+    expect(pickEntryAgent("un prototype cliquable serait parfait")).toBe("prototyper");
+  });
+
+  it("ne détourne pas les demandes des autres experts", () => {
+    expect(pickEntryAgent("mon site plante au chargement")).toBe("quality");
+    expect(pickEntryAgent("quelles fonctionnalités pour mon MVP ?")).toBe("product");
+    expect(pickEntryAgent("comment mettre mon site en ligne ?")).toBe("devops");
+  });
+
+  it("laisse la question de compréhension primer sur l'envie de voir", () => {
+    expect(pickEntryAgent("c'est quoi une maquette ?")).toBe("teacher");
+  });
+});

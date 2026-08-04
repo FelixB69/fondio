@@ -89,6 +89,22 @@ const SIGNALS: Record<Exclude<AgentId, "pm">, Signal[]> = {
     "no code",
     "quel outil pour",
   ],
+  // Milo — envie de VOIR plutôt que de lire. Signaux volontairement étroits :
+  // « maquette », « prototype » et les tournures « à quoi ça ressemble » ne
+  // recouvrent aucun autre expert.
+  prototyper: [
+    "maquette",
+    "prototype",
+    "wireframe",
+    "a quoi ca ressemble",
+    "a quoi ressemble",
+    "a quoi ca ressemblerait",
+    "voir a quoi",
+    "un apercu visuel",
+    "un rendu visuel",
+    "un exemple visuel",
+    /(voir|montre|montrer|montrez|visualiser).{0,25}(ecran|interface|rendu|design|page d'accueil)/,
+  ],
   // Jade — fonctionnalités / parcours / périmètre produit.
   product: [
     "fonctionnalites",
@@ -111,6 +127,7 @@ const SIGNALS: Record<Exclude<AgentId, "pm">, Signal[]> = {
 // signal, Clara (pm) prend le cadrage.
 const PRIORITY: Exclude<AgentId, "pm">[] = [
   "teacher",
+  "prototyper",
   "quality",
   "devops",
   "architect",

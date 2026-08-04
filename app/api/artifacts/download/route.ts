@@ -26,6 +26,9 @@ interface DownloadRequest {
   format: Format;
 }
 
+// Seuls les tableaux et documents se convertissent en fichier bureautique.
+type DownloadableArtifact = Extract<Artifact, { kind: "table" | "document" }>;
+
 const MIME: Record<Format, string> = {
   csv: "text/csv; charset=utf-8",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -55,6 +58,15 @@ export async function POST(req: Request) {
   const { artifact, format } = body;
   if (!artifact || !format) {
     return NextResponse.json({ error: "artifact et format requis." }, { status: 400 });
+  }
+
+  // Les maquettes ne passent pas par ici : elles ne se convertissent pas en
+  // xlsx/pdf/docx, et l'UI n'en propose que la copie du code.
+  if (artifact.kind === "prototype") {
+    return NextResponse.json(
+      { error: "Une maquette ne se télécharge pas dans ce format." },
+      { status: 400 },
+    );
   }
 
   const sizeError = validateArtifactSize(artifact);
@@ -93,7 +105,7 @@ export async function POST(req: Request) {
 
 // Rejette les artefacts hors bornes AVANT tout rendu (voir les constantes en
 // tête de fichier). Renvoie un message d'erreur, ou null si tout est bon.
-function validateArtifactSize(artifact: Artifact): string | null {
+function validateArtifactSize(artifact: DownloadableArtifact): string | null {
   if (artifact.kind === "table") {
     if (!Array.isArray(artifact.headers) || !Array.isArray(artifact.rows)) {
       return "Tableau invalide.";
@@ -115,7 +127,7 @@ function validateArtifactSize(artifact: Artifact): string | null {
   return null;
 }
 
-async function render(artifact: Artifact, format: Format): Promise<Buffer> {
+async function render(artifact: DownloadableArtifact, format: Format): Promise<Buffer> {
   if (artifact.kind === "table") {
     switch (format as TableFormat) {
       case "csv":

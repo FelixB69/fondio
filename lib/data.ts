@@ -13,6 +13,7 @@ export type AgentId =
   | "architect"
   | "pm"
   | "product"
+  | "prototyper"
   | "quality"
   | "devops"
   | "teacher";
@@ -87,6 +88,16 @@ export type Artifact =
       kind: "document";
       title: string;
       markdown: string;
+    }
+  // Maquette cliquable produite par le Maquettiste (et, en plus court, par le
+  // Formateur). Contrairement aux deux autres, elle NE passe PAS par la 2e passe
+  // JSON : le HTML est extrait tel quel du bloc ```html de la réponse (faire
+  // tenir un fichier entier dans une string JSON est hors de portée des petits
+  // modèles). Affichée dans une iframe sandboxée — cf. lib/prototype.ts.
+  | {
+      kind: "prototype";
+      title: string;
+      html: string;
     };
 
 // Schéma JSON strict que Qwen2.5-Coder doit produire (utilisé avec
@@ -246,6 +257,76 @@ const TEACHER_INSTRUCTIONS = `
 RÔLE SPÉCIAL — Tu es le FORMATEUR : enseigner est ton unique métier. Contrairement aux autres agents, la consigne de brièveté pédagogique NE s'applique PAS à toi : quand on te pose une question de compréhension, prends le temps d'un vrai cours — analogies filées, exemples concrets, pas-à-pas, et termine par une vérification ("est-ce plus clair ?"). Tu ne produis ni livrables ni tâches : ton but est de faire COMPRENDRE, pas d'avancer le build.
 `.trim();
 
+// ---------------------------------------------------------------------
+// Maquettes exécutables
+//
+// Le HTML produit tourne dans une iframe à ORIGINE OPAQUE (sandbox sans
+// allow-same-origin) avec une CSP `connect-src 'none'`. Concrètement : tout
+// appel réseau est bloqué, et localStorage/sessionStorage lèveraient une
+// SecurityError — d'où l'interdit explicite ci-dessous. Un shim en mémoire
+// (lib/prototype.ts) rattrape les oublis du modèle, mais la consigne reste la
+// première ligne de défense : mieux vaut du code qui n'en a pas besoin.
+// ---------------------------------------------------------------------
+
+// Ce que la maquette doit MONTRER selon le genre du projet. Les projets sans
+// interface (script, API) ne sont pas exclus : on illustre alors leur sortie —
+// une page qui met en scène le résultat, sans jamais laisser croire que le
+// programme tourne vraiment.
+const PROTOTYPE_TYPE_BRIEFS: Record<ProjectType, string> = {
+  web: `L'interface elle-même, cliquable : la navigation, les pages ou onglets, les boutons qui réagissent. Le rendu doit rester lisible aussi bien en largeur mobile qu'en desktop.`,
+  mobile: `L'écran de l'application présenté DANS un cadre de téléphone (un bloc bordé, arrondi, d'environ 380 px de large, centré dans la page). Barre d'onglets en bas, écrans qui se remplacent au clic.`,
+  script: `Une page qui MET EN SCÈNE l'exécution, puisqu'un script n'a pas d'interface : un faux terminal (fond sombre, police à chasse fixe) où la commande est déjà tapée, un bouton « Lancer » qui fait défiler les lignes de sortie une à une, puis un résumé chiffré (fichiers traités, erreurs). À côté, un aperçu du fichier ou du rapport produit.`,
+  api: `Une page qui ILLUSTRE l'API, puisqu'une API n'a pas d'interface : la liste des points d'entrée à gauche, le détail du point sélectionné à droite (méthode, paramètres attendus, exemple de réponse JSON mise en forme et colorée), et un bouton « Envoyer » qui affiche la réponse d'exemple écrite en dur.`,
+  ai: `Le parcours de l'utilisateur autour du modèle : la zone de saisie, une réponse d'exemple écrite en dur qui s'affiche progressivement, les réglages visibles (ton, longueur, source de données) et l'endroit où l'utilisateur voit d'où vient la réponse.`,
+  other: `Le parcours utilisateur principal, écran par écran, avec les boutons qui font passer d'une étape à la suivante.`,
+};
+
+// Contraintes du bac à sable, mutualisées : le Maquettiste et le Formateur
+// produisent tous deux du HTML exécuté dans la même iframe.
+const SANDBOX_CONSTRAINTS = `
+Contraintes techniques ABSOLUES (la page s'exécute dans un bac à sable fermé — hors de ces règles, elle s'affiche blanche) :
+- INTERDIT : localStorage, sessionStorage, cookies, fetch, XMLHttpRequest, WebSocket, formulaire qui envoie vers un serveur, window.open, window.parent, window.top.
+- Les données vivent dans un simple tableau JavaScript en mémoire, écrit en dur dans la page.
+- Ressources externes autorisées, et AUCUNE autre : https://cdn.tailwindcss.com, https://fonts.googleapis.com, https://fonts.gstatic.com, et https://placehold.co pour les images.
+- Tout le reste (CSS, JavaScript, icônes SVG) est écrit directement dans la page.
+- Pas de framework à compiler : ni React, ni Vue, ni JSX. Du HTML, du CSS et du JavaScript simple.
+- alert(), confirm() et prompt() ne s'affichent pas dans ce bac à sable : pour un retour visuel, écris le message DANS la page.
+`.trim();
+
+// Prompt du Maquettiste (Milo) — le seul agent autorisé à produire une maquette
+// complète. Le brief change selon le genre de projet.
+function buildPrototypeInstructions(projectType: ProjectType): string {
+  return `
+RÔLE SPÉCIAL — Tu es le MAQUETTISTE : tu es le seul agent qui MONTRE au lieu de décrire. Dès que tu as assez de matière, produis UNE maquette, et une seule par réponse.
+
+Ce que ta maquette doit montrer pour ce projet :
+${PROTOTYPE_TYPE_BRIEFS[projectType]}
+
+Format OBLIGATOIRE de la maquette :
+1. D'abord, 2 à 4 phrases maximum : ce que la personne va voir et ce sur quoi elle peut cliquer.
+2. Ensuite, UN unique bloc de code ouvert par \`\`\`html et fermé par \`\`\`, contenant un document HTML complet et autonome (<!DOCTYPE html>, <html>, <head>, <body>). Jamais deux blocs.
+3. Enfin, la section \`LIVRABLES:\` avec la maquette en première puce, nommée d'après ce qu'elle montre (ex. « Maquette du tunnel de réservation »).
+
+${SANDBOX_CONSTRAINTS}
+
+HONNÊTETÉ OBLIGATOIRE — dis clairement, en une phrase dans ton texte : que c'est une maquette de démonstration, que les données affichées sont fictives et disparaissent au rechargement, et que la vraie sauvegarde relève du développement. N'écris JAMAIS que la maquette « fonctionne », « est opérationnelle » ou « est prête à l'emploi ».
+
+Si la demande ne se maquette pas (budget, planning, choix d'un prestataire, question de méthode), réponds normalement SANS bloc de code. N'invente pas de maquette pour remplir.
+`.trim();
+}
+
+// Le Formateur peut illustrer une explication par une démo minuscule. Volume
+// bien plus serré que le Maquettiste : c'est un support de cours, pas un
+// livrable — et son tour reste sur le modèle de conversation, pas sur le
+// modèle de code.
+const TEACHER_SNIPPET_INSTRUCTIONS = `
+DÉMONSTRATION EXÉCUTABLE — Quand un concept se comprend nettement mieux en le voyant bouger, tu peux illustrer ton explication par UNE petite page de démonstration : un unique bloc \`\`\`html, 30 lignes maximum, document HTML complet et autonome.
+
+${SANDBOX_CONSTRAINTS}
+
+Reste sobre : c'est un support d'explication, pas une maquette de projet. Pour maquetter un vrai écran, renvoie vers Milo (Maquettiste). N'en mets pas dans chaque réponse — seulement quand voir vaut mieux que lire.
+`.trim();
+
 // Volet ORIENTATION — mode Accompagné uniquement. L'agent courant peut proposer
 // de passer la main à un confrère mieux placé quand le sujet sort franchement de
 // son périmètre. C'est un BONUS opportuniste : le vrai levier de changement
@@ -400,6 +481,28 @@ export const AGENTS: Record<AgentId, Agent> = {
       "parcours utilisateur, liste de fonctionnalités priorisées (MVP vs plus tard), critères de réussite.",
     ),
   },
+  prototyper: {
+    id: "prototyper",
+    firstName: "Milo",
+    name: "Maquettiste",
+    role1: "Maquette",
+    icon: "code",
+    color: "#0891B2",
+    bg: "#ECFEFF",
+    desc: "Voir son idée en vrai : une maquette cliquable, à montrer à un développeur ou à un client.",
+    tags: ["maquette", "prototype", "démo"],
+    starters: [
+      "Montrez-moi à quoi pourrait ressembler mon projet",
+      "Faites une maquette de ma page d'accueil",
+      "Je veux quelque chose à montrer à mon développeur",
+    ],
+    systemPrompt: buildPrompt(
+      "Milo",
+      "Tu es maquettiste. Tu transformes l'idée d'un porteur de projet non-technique en une maquette web cliquable qu'il peut regarder, manipuler et montrer autour de lui. Tu montres au lieu de décrire.",
+      "concret et visuel, tu préfères une maquette simple et lisible à une démo bavarde. Tu dis toujours ce qui est réellement simulé et ce qui ne l'est pas.",
+      "maquettes cliquables d'écran ou de parcours, pages de démonstration illustrant la sortie d'un script ou d'une API.",
+    ),
+  },
   quality: {
     id: "quality",
     firstName: "Rui",
@@ -471,7 +574,21 @@ export const AGENTS: Record<AgentId, Agent> = {
 // Modèle B : les agents sont transverses. Toute catégorie de projet expose le
 // roster complet — la catégorie sert de contexte (injecté dans le prompt via
 // PROJECT_TYPE_INSTRUCTIONS), pas de filtre.
-const ALL_AGENT_IDS: AgentId[] = ["architect", "pm", "product", "quality", "devops", "teacher"];
+const ALL_AGENT_IDS: AgentId[] = [
+  "architect",
+  "pm",
+  "product",
+  "prototyper",
+  "quality",
+  "devops",
+  "teacher",
+];
+
+// Agents éligibles au Mode Panel. Le Maquettiste en est exclu : en panel chaque
+// expert répond à la suite, et une maquette de 300 lignes au milieu d'un débat
+// casse la lecture pour un coût de génération élevé. Il reste pleinement
+// disponible en session solo.
+export const PANEL_AGENT_IDS: AgentId[] = ALL_AGENT_IDS.filter((id) => id !== "prototyper");
 
 export const PROJECT_TYPES: Record<
   ProjectType,
@@ -547,8 +664,13 @@ export function buildSystemPrompt(
   ];
   // Le Chef de projet est le seul à produire des tâches par défaut.
   if (agentId === "pm") parts.push(TASKS_INSTRUCTIONS);
-  // Le Formateur est le seul autorisé au cours long format.
-  if (agentId === "teacher") parts.push(TEACHER_INSTRUCTIONS);
+  // Le Formateur est le seul autorisé au cours long format, et peut illustrer
+  // une explication par une démo minuscule.
+  if (agentId === "teacher") parts.push(TEACHER_INSTRUCTIONS, TEACHER_SNIPPET_INSTRUCTIONS);
+  // Le Maquettiste est le seul à produire une maquette complète. Le brief
+  // dépend du genre de projet (un script n'a pas d'écran à maquetter : on
+  // illustre alors sa sortie).
+  if (agentId === "prototyper") parts.push(buildPrototypeInstructions(projectType));
   // Mode Accompagné : l'agent peut proposer un relais vers un confrère.
   if (guided) parts.push(buildOrientInstructions(agentId));
   if (challenger) parts.push(CHALLENGER_INSTRUCTIONS);
