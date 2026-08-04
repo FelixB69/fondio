@@ -21,6 +21,7 @@ import { C } from "@/lib/design-tokens";
 import { type ModelProvider, type ModelStatus } from "@/lib/models";
 import { stripTrailingSections } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/client";
+import { toActionTitle } from "@/lib/task-phrasing";
 import { useIsMobile } from "@/lib/use-responsive";
 import type { ProjectLite } from "./AppDataProvider";
 import { ArtifactBlock } from "./Artifact";
@@ -292,7 +293,9 @@ function DeliverablesBlock({
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {items.map((item, i) => {
-          const tasked = taskedItems?.has(item);
+          // Comparaison sur l'intitulé STOCKÉ (reformulé en action), sinon le
+          // badge « déjà tâche » se perdrait au rechargement.
+          const tasked = taskedItems?.has(toActionTitle(item));
           return (
             <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, color: C.text, lineHeight: 1.5, alignItems: "flex-start" }}>
               <span style={{ color, fontWeight: 800, flexShrink: 0 }}>→</span>
@@ -414,7 +417,7 @@ function AgentReplyBubble({
                 color={agent.color}
                 bg={agent.bg}
                 onConvertToTask={convert}
-                tasked={taskedItems?.has(a.title)}
+                tasked={taskedItems?.has(toActionTitle(a.title))}
               />
             ))
           ) : (
@@ -553,7 +556,7 @@ function SynthesisBubble({
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {msg.deliverables.map((d, i) => {
-              const tasked = taskedItems?.has(d);
+              const tasked = taskedItems?.has(toActionTitle(d));
               return (
                 <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, color: C.text, lineHeight: 1.5, alignItems: "flex-start" }}>
                   <span style={{ color: SYNTHESIS_META.color, fontWeight: 800, flexShrink: 0 }}>→</span>
@@ -847,10 +850,13 @@ export function MultiAgentSession({
     }
   }, [messages, liveReplies, liveSynthesis, streamingContent, isStreaming]);
 
+  // Cf. ChatSession : le livrable (nom de chose) est enregistré reformulé en
+  // action, donc `taskedItems` contient les intitulés STOCKÉS.
   const convertToTask = useCallback(
     async (text: string, agentId: AgentId) => {
-      if (taskedItems.has(text)) return;
-      setTaskedItems((p) => new Set(p).add(text));
+      const content = toActionTitle(text);
+      if (!content || taskedItems.has(content)) return;
+      setTaskedItems((p) => new Set(p).add(content));
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -864,7 +870,7 @@ export function MultiAgentSession({
         user_id: user.id,
         session_id: sessionId,
         project_id: sess?.project_id ?? null,
-        content: text,
+        content,
         status: "todo",
         source_agent_id: agentId,
       });

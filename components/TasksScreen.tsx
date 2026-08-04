@@ -147,7 +147,7 @@ export function TasksScreen({ onOpenSession }: { onOpenSession: (id: string) => 
             onKeyDown={(e) => {
               if (e.key === "Enter") addTask();
             }}
-            placeholder="Nouvelle tâche…"
+            placeholder="Nouvelle action : Appeler…, Rédiger…, Tester…"
             style={{
               flex: 1,
               background: "transparent",

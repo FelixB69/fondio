@@ -118,7 +118,7 @@ describe("ProjectTasksTab — création rapide", () => {
     useTasksMock.mockReturnValue(hook);
     renderTab();
 
-    const input = screen.getByPlaceholderText("Nouvelle tâche pour ce projet…");
+    const input = screen.getByPlaceholderText(/Nouvelle action pour ce projet/);
     await user.type(input, "Réserver le nom de domaine");
     await user.click(screen.getByRole("button", { name: /Ajouter/ }));
 

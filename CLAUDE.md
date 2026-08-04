@@ -48,7 +48,7 @@ Le fallback cloud (Mistral) et la recherche web (Tavily) sont optionnels : sans 
 | **Agents & prompts** | `lib/data.ts` (6 agents IT, catégories, `buildSystemPrompt`/`buildPanelAgentPrompt`) |
 | **Parsing réponses** | `lib/parse-agent-reply.ts` |
 | **Projets / étapes / XP** | `lib/projects.ts` |
-| **Tâches** | `lib/tasks.ts`, `lib/use-tasks.ts` (cache SWR **partagé** — ne PAS fetcher les tâches par écran) |
+| **Tâches** | `lib/tasks.ts`, `lib/use-tasks.ts` (cache SWR **partagé** — ne PAS fetcher les tâches par écran), `lib/task-phrasing.ts` (intitulés → actions) |
 | **Glossaire pédagogique** | `lib/glossary.ts` |
 | **LLM multi-provider** | `lib/llm.ts`, `lib/byok.ts`, `lib/web-search.ts`, `lib/artifacts.ts` |
 | **Maquettes exécutables** | `lib/prototype.ts` (sandbox + CSP + shim), `components/Artifact.tsx` |
@@ -89,6 +89,14 @@ CHALLENGES:           ← Mode Challenger uniquement
 LEXIQUE:              ← terme technique nouveau (→ glossaire du projet)
 - terme — définition simple
 ```
+
+### Tâches = des actions
+
+Une tâche enregistrée doit se lire comme quelque chose à **faire** : « Appeler l'hébergeur », « Rédiger le cahier des charges ». Le prompt le demande au Chef de projet, mais deux sources produisent des **noms de choses** : le LLM qui dévie, et surtout la conversion d'un **livrable** en tâche (un livrable EST un nom d'objet).
+
+`toActionTitle()` (`lib/task-phrasing.ts`) reformule à l'**écriture** — routes `/api/chat` et `/api/panel-chat`, et bouton ⊕ des deux sessions. Déterministe et prudent : verbe connu en tête → intact ; nom connu en tête → verbe + article du bon genre (« Maquette du panier » → « Créer la maquette du panier ») ; **sinon on n'y touche pas**, plutôt qu'inventer un genre. La saisie manuelle n'est pas réécrite (on ne corrige pas ce que l'utilisateur tape).
+
+Conséquence : le contenu **stocké** diffère du libellé du livrable affiché → les comparaisons `taskedItems.has(...)` (badge « déjà tâche ») passent par `toActionTitle()`.
 
 Règles du parseur : titres tolérants au markdown (`**LIVRABLES:**`, `## …`) ; les blocs de section sont retirés **où qu'ils soient** (y compris en tête) ; ne reste que la prose. `TÂCHES` accepte l'absence d'accent.
 

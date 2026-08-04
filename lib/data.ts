@@ -228,6 +228,11 @@ TÂCHES:
 - autre action concrète
 
 Règles :
+- Chaque tâche COMMENCE par un verbe d'action à l'infinitif : Appeler, Rédiger, Créer, Choisir, Comparer, Tester, Publier, Planifier, Vérifier, Réserver, Contacter…
+- Bon (une action) : « Appeler deux hébergeurs pour comparer les tarifs », « Rédiger le cahier des charges de la page panier ».
+- Mauvais (un nom de chose, pas une action) : « Cahier des charges », « Point sur l'hébergement », « Réflexion sur le tunnel de paiement ».
+- N'écris JAMAIS « Il faut… », « Vous devez… », « Penser à… » : attaque directement par le verbe.
+- 5 à 12 mots par tâche.
 - Maximum 3 tâches par tour. N'invente pas de tâches pour remplir : s'il n'y a rien de concret à faire ce tour-ci, n'écris PAS la section.
 - Chaque tâche est ancrée sur un détail réel de la conversation (fonctionnalité, page, outil, échéance cités).
 - N'écris ni statut, ni date, ni priorité — juste l'intitulé de l'action.

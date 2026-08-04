@@ -12,6 +12,7 @@ import { buildKnownTermsInstruction, mergeGlossary, type GlossaryEntry } from "@
 import { callChatModelStream, type LLMMessage } from "@/lib/llm";
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/server";
+import { toActionTitle } from "@/lib/task-phrasing";
 import { gatherWebContext } from "@/lib/web-search";
 
 export const runtime = "nodejs";
@@ -221,9 +222,15 @@ export async function POST(req: Request) {
             ];
           }
 
-          // TÂCHES → board (Chef de projet seulement), dédupliquées.
+          // TÂCHES → board (Chef de projet seulement), reformulées en actions
+          // puis dédupliquées sur le contenu réellement stocké.
           if (agentId === "pm" && parsed.tasks.length) {
-            const fresh = parsed.tasks.filter((t) => !existingTaskContents.has(t));
+            const fresh: string[] = [];
+            for (const raw of parsed.tasks) {
+              const content = toActionTitle(raw);
+              if (!content || existingTaskContents.has(content) || fresh.includes(content)) continue;
+              fresh.push(content);
+            }
             if (fresh.length) {
               const { error: taskErr } = await supabase.from("tasks").insert(
                 fresh.map((content) => ({

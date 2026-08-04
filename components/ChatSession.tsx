@@ -14,6 +14,7 @@ import { C } from "@/lib/design-tokens";
 import { prettyModelName, type ModelProvider, type ModelStatus } from "@/lib/models";
 import { hasOpenPrototypeFence, stripTrailingSections } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/client";
+import { toActionTitle } from "@/lib/task-phrasing";
 import { useIsMobile } from "@/lib/use-responsive";
 import type { ProjectLite } from "./AppDataProvider";
 import { ArtifactBlock } from "./Artifact";
@@ -278,7 +279,9 @@ function StructuredBlock({
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {items.map((item, i) => {
-          const tasked = taskedItems?.has(item);
+          // Le livrable est stocké reformulé en action : on compare sur la
+          // même forme, sinon le badge « déjà tâche » se perdrait au rechargement.
+          const tasked = taskedItems?.has(toActionTitle(item));
           return (
             <div
               key={i}
@@ -632,7 +635,7 @@ const MessageBubble = memo(function MessageBubble({
                 color={agent.color}
                 bg={agent.bg}
                 onConvertToTask={onConvertToTask}
-                tasked={taskedItems.has(a.title)}
+                tasked={taskedItems.has(toActionTitle(a.title))}
               />
             ))
           ) : msg.deliverables && msg.deliverables.length > 0 ? (
@@ -1224,10 +1227,15 @@ export function ChatSession({
     }
   }, [messages, loading, streamingContent, loadingArtifacts]);
 
+  // Un livrable est un NOM de chose (« Maquette du panier ») : on l'enregistre
+  // reformulé en action (« Créer la maquette du panier »). `taskedItems`
+  // contient donc les intitulés STOCKÉS — d'où le toActionTitle() aussi côté
+  // lecture du badge « déjà tâche ».
   const convertToTask = useCallback(
     async (text: string) => {
-      if (taskedItems.has(text)) return;
-      setTaskedItems((p) => new Set(p).add(text));
+      const content = toActionTitle(text);
+      if (!content || taskedItems.has(content)) return;
+      setTaskedItems((p) => new Set(p).add(content));
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -1241,7 +1249,7 @@ export function ChatSession({
         user_id: user.id,
         session_id: sessionId,
         project_id: sess?.project_id ?? null,
-        content: text,
+        content,
         status: "todo",
         source_agent_id: currentAgentId,
       });

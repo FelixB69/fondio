@@ -15,6 +15,7 @@ import { callChatModelStream, describeLLMError, type LLMMessage } from "@/lib/ll
 import { parseAgentReply } from "@/lib/parse-agent-reply";
 import { buildProjectStateInstruction, type ProjectStateTask } from "@/lib/projects";
 import { createClient } from "@/lib/supabase/server";
+import { toActionTitle } from "@/lib/task-phrasing";
 import { gatherWebContext } from "@/lib/web-search";
 
 export const runtime = "nodejs";
@@ -300,15 +301,23 @@ export async function POST(req: Request) {
         }
       }
 
-      // Section TÂCHES → tâches du board (statut todo). Dédupliquées par contenu
-      // sur la session pour ne pas recréer les mêmes en cas de régénération.
+      // Section TÂCHES → tâches du board (statut todo). Reformulées en actions
+      // AVANT dédup, pour comparer ce qui est réellement stocké. Dédupliquées
+      // par contenu sur la session pour ne pas recréer les mêmes en cas de
+      // régénération.
       if (parsed.tasks.length) {
         const { data: existing } = await supabase
           .from("tasks")
           .select("content")
           .eq("session_id", sessionId);
         const seen = new Set((existing ?? []).map((t: { content: string }) => t.content));
-        const fresh = parsed.tasks.filter((t) => !seen.has(t));
+        const fresh: string[] = [];
+        for (const raw of parsed.tasks) {
+          const content = toActionTitle(raw);
+          if (!content || seen.has(content)) continue;
+          seen.add(content);
+          fresh.push(content);
+        }
         if (fresh.length) {
           const { error: taskErr } = await supabase.from("tasks").insert(
             fresh.map((content) => ({

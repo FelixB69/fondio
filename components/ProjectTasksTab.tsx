@@ -108,7 +108,7 @@ export function ProjectTasksTab({
             onKeyDown={(e) => {
               if (e.key === "Enter") addTask();
             }}
-            placeholder="Nouvelle tâche pour ce projet…"
+            placeholder="Nouvelle action pour ce projet : Appeler…, Rédiger…"
             style={{
               flex: 1,
               background: "transparent",
