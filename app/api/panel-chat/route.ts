@@ -207,6 +207,20 @@ export async function POST(req: Request) {
           if (parsed.challenges.length) agentMsg.challenges = parsed.challenges;
           if (webSources.length) agentMsg.sources = webSources;
 
+          // Le Maquettiste est exclu du panel, mais rien n'empêche un autre
+          // agent d'illustrer son propos par un bloc ```html. Le parseur le
+          // retire de la prose : on l'affiche en maquette plutôt que de le
+          // perdre en silence.
+          if (parsed.prototypeHtml) {
+            agentMsg.artifacts = [
+              {
+                kind: "prototype",
+                title: parsed.deliverables[0] ?? "Maquette",
+                html: parsed.prototypeHtml,
+              },
+            ];
+          }
+
           // TÂCHES → board (Chef de projet seulement), dédupliquées.
           if (agentId === "pm" && parsed.tasks.length) {
             const fresh = parsed.tasks.filter((t) => !existingTaskContents.has(t));
@@ -240,7 +254,7 @@ export async function POST(req: Request) {
           send({ t: "agent-done", agentId, message: agentMsg });
 
           // 2e passe artefacts (livrables → tableaux/documents).
-          if (parsed.deliverables.length) {
+          if (parsed.deliverables.length && !parsed.prototypeHtml) {
             const artifacts = await generateArtifacts({
               conversation: updatedHistory,
               assistantReply: parsed.content,

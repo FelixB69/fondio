@@ -3,9 +3,11 @@ import {
   AGENTS,
   buildSystemPrompt,
   type AgentId,
+  type Artifact,
   type ChatMessage,
   type ProjectType,
 } from "@/lib/data";
+import { withLatestPrototype } from "@/lib/prototype";
 import { generateArtifacts } from "@/lib/artifacts";
 import { loadUserByokConfig, type SupabaseLike } from "@/lib/byok";
 import { buildKnownTermsInstruction, mergeGlossary, type GlossaryEntry } from "@/lib/glossary";
@@ -71,6 +73,12 @@ export async function POST(req: Request) {
 
   const agent = AGENTS[session.agent_id as AgentId];
   if (!agent) return NextResponse.json({ error: "Agent inconnu." }, { status: 400 });
+
+  // Le Maquettiste produit un fichier HTML complet, pas de la conversation : son
+  // tour part sur le modèle spécialisé code (qwen2.5-coder / Codestral). Sur le
+  // modèle de chat — qui peut être un 1.5b sur un petit serveur — le HTML sort
+  // inutilisable.
+  const isPrototyper = agent.id === "prototyper";
 
   // Glossaire du projet : termes déjà expliqués (pour ne pas les redéfinir) et
   // cible où fusionner les nouveaux termes de ce tour. Seulement si la session
@@ -201,7 +209,10 @@ export async function POST(req: Request) {
 
   const llmMessages: LLMMessage[] = [
     { role: "system", content: systemPrompt },
-    ...updatedHistory.map((m) => ({ role: m.role, content: m.content })),
+    // Le HTML des maquettes est stocké à part (dans `artifacts`), pas dans le
+    // contenu du message : on le réinjecte ici, et uniquement pour la dernière
+    // version, sinon le modèle ne saurait pas quoi modifier.
+    ...withLatestPrototype(updatedHistory),
   ];
 
   const newTitle =
@@ -209,7 +220,11 @@ export async function POST(req: Request) {
 
   let streamResult: Awaited<ReturnType<typeof callChatModelStream>>;
   try {
-    streamResult = await callChatModelStream(llmMessages, { forceProvider: preferredProvider, byok });
+    streamResult = await callChatModelStream(llmMessages, {
+      forceProvider: preferredProvider,
+      useArtifactModel: isPrototyper,
+      byok,
+    });
   } catch (e: unknown) {
     return NextResponse.json({ error: describeLLMError(e) }, { status: 503 });
   }
@@ -262,6 +277,18 @@ export async function POST(req: Request) {
       if (parsed.deliverables.length) assistantMsg.deliverables = parsed.deliverables;
       if (parsed.challenges.length) assistantMsg.challenges = parsed.challenges;
       if (webSources.length) assistantMsg.sources = webSources;
+
+      // Maquette : le HTML est déjà là, extrait du bloc ```html de cette même
+      // réponse. On en fait un artefact immédiatement — pas de 2e passe à
+      // attendre, et le titre reprend le livrable annoncé par l'agent.
+      const prototype: Artifact | null = parsed.prototypeHtml
+        ? {
+            kind: "prototype",
+            title: parsed.deliverables[0] ?? "Maquette",
+            html: parsed.prototypeHtml,
+          }
+        : null;
+      if (prototype) assistantMsg.artifacts = [prototype];
 
       // Mode Accompagné : on estampille l'agent émetteur (pour les séparateurs de
       // relais) et on remonte la suggestion d'orientation si elle vise un AUTRE
@@ -322,7 +349,11 @@ export async function POST(req: Request) {
       // (meilleur en sortie structurée) de les matérialiser en artefacts JSON.
       // Échec silencieux : si Qwen n'est pas dispo ou répond mal, on garde juste
       // les titres bruts dans `deliverables`.
-      if (parsed.deliverables.length) {
+      //
+      // On la court-circuite quand une maquette a été produite : elle écraserait
+      // `artifacts` avec un tableau/document redondant, et la maquette — le vrai
+      // livrable du tour — disparaîtrait.
+      if (parsed.deliverables.length && !prototype) {
         const artifacts = await generateArtifacts({
           conversation: updatedHistory,
           assistantReply: parsed.content,

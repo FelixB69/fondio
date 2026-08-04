@@ -703,8 +703,12 @@ async function callByokJson(byok: BYOKConfig, messages: LLMMessage[], opts?: Cal
   }
 }
 
-async function callByokStream(byok: BYOKConfig, messages: LLMMessage[]): Promise<AsyncIterable<string>> {
-  const model = BYOK_MODELS[byok.provider].chat;
+async function callByokStream(
+  byok: BYOKConfig,
+  messages: LLMMessage[],
+  opts?: CallOptions,
+): Promise<AsyncIterable<string>> {
+  const model = byokModelFor(byok, opts);
   switch (byok.provider) {
     case "anthropic":
       return callAnthropicStream(messages, byok.apiKey, model);
@@ -912,26 +916,29 @@ export async function callModelWithTools(
 // ── Streaming ───────────────────────────────────────────────────────────────
 
 // Retourne un async iterable de chunks de texte + le provider utilisé.
+// `useArtifactModel` bascule sur le modèle spécialisé code (qwen2.5-coder en
+// local, Codestral en cloud) : c'est ce que demande le tour du Maquettiste, dont
+// la sortie est un fichier HTML entier et non de la conversation.
 export async function callChatModelStream(
   messages: LLMMessage[],
-  opts?: Pick<CallOptions, "forceProvider"> & { byok?: BYOKConfig | null },
+  opts?: Pick<CallOptions, "forceProvider" | "useArtifactModel"> & { byok?: BYOKConfig | null },
 ): Promise<LLMResult<AsyncIterable<string>>> {
   if (opts?.byok && opts.forceProvider !== "local") {
     try {
-      const data = await callByokStream(opts.byok, messages);
+      const data = await callByokStream(opts.byok, messages, opts);
       return { provider: "byok", providerLabel: byokProviderLabel(opts.byok), data };
     } catch (e) {
       console.error("BYOK indisponible, repli local/cloud :", describeByokError(opts.byok, e));
     }
   }
   if (opts?.forceProvider === "cloud") {
-    const data = await callMistralStream(messages);
-    return { provider: "cloud", providerLabel: cloudLabel(), data };
+    const data = await callMistralStream(messages, opts);
+    return { provider: "cloud", providerLabel: cloudLabel(opts), data };
   }
   try {
     const res = await ollamaFetch("/api/chat", {
       method: "POST",
-      body: JSON.stringify({ model: OLLAMA_MODEL, stream: true, think: false, messages }),
+      body: JSON.stringify({ model: pickOllamaModel(opts), stream: true, think: false, messages }),
     });
     if (res.status === 404) throw new Error("OLLAMA_404 model not found");
     if (!res.ok || !res.body) {
@@ -940,18 +947,21 @@ export async function callChatModelStream(
     }
     return {
       provider: "local",
-      providerLabel: localLabel(),
+      providerLabel: localLabel(opts),
       data: ollamaStreamToText(res.body),
     };
   } catch (e) {
     if (!isOllamaUnavailable(e)) throw e;
     if (opts?.forceProvider === "local") throw new Error("OLLAMA_LOCAL_FORCED_UNAVAILABLE");
-    const data = await callMistralStream(messages);
-    return { provider: "cloud", providerLabel: cloudLabel(), data };
+    const data = await callMistralStream(messages, opts);
+    return { provider: "cloud", providerLabel: cloudLabel(opts), data };
   }
 }
 
-async function callMistralStream(messages: LLMMessage[]): Promise<AsyncIterable<string>> {
+async function callMistralStream(
+  messages: LLMMessage[],
+  opts?: CallOptions,
+): Promise<AsyncIterable<string>> {
   const apiKey = getMistralApiKey();
   if (!apiKey) {
     throw new Error(
@@ -965,7 +975,7 @@ async function callMistralStream(messages: LLMMessage[]): Promise<AsyncIterable<
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model: MISTRAL_MODEL, messages, stream: true }),
+    body: JSON.stringify({ model: pickMistralModel(opts), messages, stream: true }),
   });
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "");
