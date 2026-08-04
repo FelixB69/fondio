@@ -51,13 +51,15 @@ Le fallback cloud (Mistral) et la recherche web (Tavily) sont optionnels : sans 
 | **Tâches** | `lib/tasks.ts`, `lib/use-tasks.ts` (cache SWR **partagé** — ne PAS fetcher les tâches par écran) |
 | **Glossaire pédagogique** | `lib/glossary.ts` |
 | **LLM multi-provider** | `lib/llm.ts`, `lib/byok.ts`, `lib/web-search.ts`, `lib/artifacts.ts` |
+| **Maquettes exécutables** | `lib/prototype.ts` (sandbox + CSP + shim), `components/Artifact.tsx` |
 
 ### Genres de projet & agents (`lib/data.ts`)
 
 - **`project_type`** (nom de colonne conservé) porte désormais un **genre IT** : `web | ai | script | mobile | api | other`. Ce n'est **pas un filtre d'agents** — c'est du **contexte** injecté dans le prompt (`PROJECT_TYPE_INSTRUCTIONS`).
-- **6 agents transverses** (tous dispo pour tout projet) : `architect` (Malik), `pm` (Clara), `product` (Jade), `quality` (Rui), `devops` (Nadia), `teacher` (Sam).
+- **7 agents transverses** (tous dispo pour tout projet) : `architect` (Malik), `pm` (Clara), `product` (Jade), `prototyper` (Milo), `quality` (Rui), `devops` (Nadia), `teacher` (Sam).
   - `pm` est le **seul** à produire des **tâches** (`TÂCHES:`).
   - `teacher` est le **seul** autorisé au **cours long format** ; les autres définissent brièvement et renvoient vers lui pour l'approfondissement.
+  - `prototyper` est le **seul** à produire une **maquette complète** (bloc ```` ```html ````). Son tour passe par le **modèle code** (`useArtifactModel: true`) et **court-circuite la 2e passe artefacts**. Il est **exclu du Mode Panel** (`PANEL_AGENT_IDS`). `teacher` peut émettre une démo courte (30 lignes) sur le modèle de chat.
 
 ### Schéma Supabase (réel)
 
@@ -89,6 +91,18 @@ LEXIQUE:              ← terme technique nouveau (→ glossaire du projet)
 ```
 
 Règles du parseur : titres tolérants au markdown (`**LIVRABLES:**`, `## …`) ; les blocs de section sont retirés **où qu'ils soient** (y compris en tête) ; ne reste que la prose. `TÂCHES` accepte l'absence d'accent.
+
+### Maquettes (agent `prototyper`)
+
+Un bloc ```` ```html ```` dans la réponse est extrait par `parse-agent-reply.ts` **avant** le parsing des sections (le HTML contient n'importe quel mot), retiré de la prose, et rangé en `artifacts: [{ kind: "prototype", title, html }]` — même stockage JSONB que les autres artefacts, **aucune migration**.
+
+Sécurité — c'est le navigateur qui isole, pas nos regex (`lib/prototype.ts`) :
+
+- `sandbox="allow-scripts"` **sans** `allow-same-origin` → origine opaque. **Ne jamais ajouter `allow-same-origin`** : combiné à `allow-scripts`, il annule tout le bac à sable et expose la session Supabase.
+- CSP en `<meta>` injectée dans le `srcdoc` : allowlist (Tailwind CDN, Google Fonts, placehold.co) et `connect-src 'none'` → exfiltration impossible par construction.
+- Origine opaque ⇒ `localStorage` / `sessionStorage` / `document.cookie` lèvent une `SecurityError` (page **blanche**). Un shim en mémoire est injecté avant tout script de la maquette ; le prompt l'interdit aussi, mais la consigne seule ne suffit pas.
+
+Contexte LLM : le HTML n'étant pas dans `message.content`, `withLatestPrototype()` réinjecte **uniquement la dernière** maquette dans le prompt (les précédentes → marqueur). Coût de contexte constant quel que soit le nombre d'itérations.
 
 ### Volet pédagogique (anti-cours)
 
