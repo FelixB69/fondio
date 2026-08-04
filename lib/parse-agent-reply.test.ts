@@ -210,3 +210,59 @@ describe("stripTrailingSections", () => {
     expect(stripTrailingSections(raw)).toBe("Un site est une vitrine.");
   });
 });
+
+describe("extraction de la maquette (bloc ```html)", () => {
+  const page = '<!DOCTYPE html>\n<html>\n<body>\n<h1>Réserver</h1>\n</body>\n</html>';
+
+  it("extrait le HTML et le retire de la prose", () => {
+    const raw = [
+      "Voici votre page de réservation. Cliquez sur un créneau.",
+      "",
+      "```html",
+      page,
+      "```",
+      "",
+      "LIVRABLES:",
+      "- Maquette du tunnel de réservation",
+    ].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.prototypeHtml).toBe(page);
+    expect(r.content).toBe("Voici votre page de réservation. Cliquez sur un créneau.");
+    expect(r.deliverables).toEqual(["Maquette du tunnel de réservation"]);
+  });
+
+  it("accepte un bloc sans annotation de langage si le contenu est du HTML", () => {
+    const raw = ["Regardez :", "", "```", page, "```"].join("\n");
+    expect(parseAgentReply(raw).prototypeHtml).toBe(page);
+  });
+
+  it("laisse les autres blocs de code dans la prose", () => {
+    const raw = ["Lancez :", "", "```bash", "npm run dev", "```"].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.prototypeHtml).toBeNull();
+    expect(r.content).toContain("npm run dev");
+  });
+
+  it("trouve le bloc html même précédé d'un bloc d'un autre langage", () => {
+    const raw = ["```bash", "npm i", "```", "", "```html", page, "```"].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.prototypeHtml).toBe(page);
+    expect(r.content).toContain("npm i");
+  });
+
+  it("ne déverse pas le HTML à l'écran pendant le streaming (bloc non refermé)", () => {
+    const partial = ["Voici votre page.", "", "```html", "<!DOCTYPE html>", "<html><bo"].join("\n");
+    expect(stripTrailingSections(partial)).toBe("Voici votre page.");
+  });
+
+  it("ne confond pas un mot de section écrit dans le HTML avec une vraie section", () => {
+    const raw = ["Voici :", "", "```html", "<p>LIVRABLES:</p>", "<p>- faux</p>", "```"].join("\n");
+    const r = parseAgentReply(raw);
+    expect(r.deliverables).toEqual([]);
+    expect(r.content).toBe("Voici :");
+  });
+
+  it("vaut null quand la réponse ne contient aucune maquette", () => {
+    expect(parseAgentReply("Une réponse normale.").prototypeHtml).toBeNull();
+  });
+});

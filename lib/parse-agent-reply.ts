@@ -33,6 +33,11 @@ export interface ParsedReply {
   // Mode Accompagné : relais suggéré vers un confrère via la section `ORIENTER:`.
   // null si aucune suggestion (ou prénom non reconnu).
   orient: { agentId: AgentId; reason: string } | null;
+  // Maquette : contenu du bloc ```html, retiré de la prose. Le Maquettiste
+  // l'émet en 1 passe (pas de 2e appel LLM en mode JSON : faire tenir un
+  // fichier HTML entier dans une string JSON dépasse les petits modèles).
+  // null si la réponse n'en contient pas.
+  prototypeHtml: string | null;
 }
 
 // Résout le jeton écrit après ORIENTER: (prénom, rôle, ou slug) en AgentId.
@@ -100,6 +105,55 @@ const SECTION_HEADING_LINE = new RegExp(
   "im",
 );
 
+// Ouverture d'un bloc de code : ```<langage> seul en fin de ligne.
+const FENCE_OPEN = /(^|\n)([ \t]*)```([^\n`]*)\r?\n/;
+// Fermeture : ``` seul sur sa ligne (ou collé au début, cas du bloc vide).
+const FENCE_CLOSE = /(?:\r?\n|^)[ \t]*```[ \t]*(?:\r?\n|$)/;
+
+// Extrait le bloc ```html d'une réponse et le retire de la prose.
+//
+// On accepte aussi un bloc SANS langage dont le contenu ressemble à un document
+// HTML : les modèles oublient régulièrement l'annotation. En revanche on ne
+// touche à aucun autre bloc de code (```bash, ```json…), qui reste dans la prose
+// et sera rendu normalement par le markdown.
+//
+// Bloc non refermé (cas du streaming, où la réponse arrive par morceaux) : on
+// considère que le bloc court jusqu'à la fin, ce qui évite de déverser du HTML
+// brut à l'écran pendant la génération.
+function extractPrototypeHtml(raw: string): { html: string | null; rest: string } {
+  let cursor = 0;
+  while (cursor < raw.length) {
+    const open = raw.slice(cursor).match(FENCE_OPEN);
+    if (!open || open.index === undefined) break;
+
+    const openStart = cursor + open.index + open[1].length; // après le \n éventuel
+    const bodyStart = cursor + open.index + open[0].length;
+    const close = raw.slice(bodyStart).match(FENCE_CLOSE);
+    const closed = !!close && close.index !== undefined;
+    const bodyEnd = closed ? bodyStart + close!.index! : raw.length;
+    const blockEnd = closed ? bodyEnd + close![0].length : raw.length;
+    const body = raw.slice(bodyStart, bodyEnd);
+
+    const lang = open[3].trim().toLowerCase();
+    if (lang === "html" || (!lang && /<!doctype html|<html[\s>]/i.test(body))) {
+      const rest = (raw.slice(0, openStart) + raw.slice(blockEnd)).replace(/\n{3,}/g, "\n\n");
+      return { html: body.trim() || null, rest };
+    }
+    cursor = blockEnd;
+  }
+  return { html: null, rest: raw };
+}
+
+// Vrai pendant qu'une maquette est en cours de génération : le bloc ```html est
+// ouvert mais pas encore refermé. L'UI s'en sert pour afficher « maquette en
+// cours » au lieu de laisser l'écran figé pendant plusieurs secondes.
+export function hasOpenPrototypeFence(text: string): boolean {
+  const open = text.match(FENCE_OPEN);
+  if (!open || open.index === undefined) return false;
+  if (open[3].trim().toLowerCase() !== "html") return false;
+  return !FENCE_CLOSE.test(text.slice(open.index + open[0].length));
+}
+
 // ORIENTER: <agent> — raison. Contrairement aux autres sections, c'est UNE ligne
 // (pas une liste de puces), donc on l'extrait à part. Renvoie aussi le span à
 // retirer de la prose affichée.
@@ -139,7 +193,9 @@ function extractOrient(
 // tête, cas où l'ancien « couper avant le 1er titre » vidait tout l'affichage.
 // On délègue au même moteur que le message final pour rester cohérent.
 export function stripTrailingSections(text: string): string {
-  if (!SECTION_HEADING_LINE.test(text)) return text;
+  // Le bloc ```html est retiré lui aussi, y compris tant qu'il est ouvert :
+  // sans ça, le HTML d'une maquette défilerait brut dans la bulle de chat.
+  if (!SECTION_HEADING_LINE.test(text) && !FENCE_OPEN.test(text)) return text;
   return parseAgentReply(text).content;
 }
 
@@ -165,6 +221,7 @@ export function parseAgentReply(raw: string): ParsedReply {
           tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
           lexicon: [],
           orient: null,
+          prototypeHtml: null,
         };
       }
     } catch {
@@ -172,15 +229,20 @@ export function parseAgentReply(raw: string): ParsedReply {
     }
   }
 
+  // La maquette sort AVANT le parsing des sections : le HTML peut contenir
+  // n'importe quel mot (« LIVRABLES », une puce…) et fausserait la découpe.
+  // Tout le reste travaille donc sur `body`, la réponse sans son bloc de code.
+  const { html: prototypeHtml, rest: body } = extractPrototypeHtml(raw);
+
   const extractSection = (
     label: string,
     otherLabels: string[],
   ): { items: string[]; start: number; end: number } => {
-    const m = raw.match(buildHeadingRegex(label));
+    const m = body.match(buildHeadingRegex(label));
     if (!m || m.index === undefined) return { items: [], start: -1, end: -1 };
     const start = m.index;
     const headingEnd = start + m[0].length;
-    const after = raw.slice(headingEnd);
+    const after = body.slice(headingEnd);
     const stopMatch = after.match(buildStopRegex(otherLabels));
     const stopIdx =
       stopMatch && stopMatch.index !== undefined ? stopMatch.index : after.length;
@@ -216,7 +278,7 @@ export function parseAgentReply(raw: string): ParsedReply {
   const cha = extractSection(LABEL_CHALLENGES, [LABEL_LIVRABLES, LABEL_TACHES, LABEL_LEXIQUE, LABEL_ORIENTER]);
   const tac = extractSection(LABEL_TACHES, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_LEXIQUE, LABEL_ORIENTER]);
   const lex = extractSection(LABEL_LEXIQUE, [LABEL_LIVRABLES, LABEL_CHALLENGES, LABEL_TACHES, LABEL_ORIENTER]);
-  const orient = extractOrient(raw);
+  const orient = extractOrient(body);
 
   // On retire chaque bloc de section du texte affiché, où qu'il soit placé
   // (certains modèles mettent LEXIQUE en TÊTE). Le contenu = la prose restante.
@@ -226,19 +288,20 @@ export function parseAgentReply(raw: string): ParsedReply {
   let content = "";
   let cursor = 0;
   for (const s of spans) {
-    if (s.start > cursor) content += raw.slice(cursor, s.start);
+    if (s.start > cursor) content += body.slice(cursor, s.start);
     cursor = Math.max(cursor, s.end);
   }
-  content += raw.slice(cursor);
+  content += body.slice(cursor);
   content = content.replace(/\n{3,}/g, "\n\n").trim();
 
   return {
     // Fallback vers le brut UNIQUEMENT si aucune section n'a été détectée.
-    content: content || (spans.length ? content : raw.trim()),
+    content: content || (spans.length ? content : body.trim()),
     deliverables: liv.items,
     challenges: cha.items,
     tasks: tac.items,
     lexicon: parseLexiconItems(lex.items),
     orient: orient ? { agentId: orient.agentId, reason: orient.reason } : null,
+    prototypeHtml,
   };
 }
