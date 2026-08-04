@@ -12,7 +12,7 @@ import {
 } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { prettyModelName, type ModelProvider, type ModelStatus } from "@/lib/models";
-import { stripTrailingSections } from "@/lib/parse-agent-reply";
+import { hasOpenPrototypeFence, stripTrailingSections } from "@/lib/parse-agent-reply";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/lib/use-responsive";
 import type { ProjectLite } from "./AppDataProvider";
@@ -471,6 +471,37 @@ function ArtifactsEnriching({ color }: { color: string }) {
   );
 }
 
+// Même principe pendant la génération d'une maquette : le HTML est masqué (on
+// n'affiche jamais de code brut dans la bulle), donc sans ce repère l'écran
+// paraîtrait figé pendant les dizaines de secondes que dure l'écriture.
+function PrototypeGenerating({ color }: { color: string }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        marginTop: 8,
+        fontSize: 11.5,
+        color: C.textMute,
+        fontWeight: 600,
+      }}
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: color,
+          animation: "fndBounce 1.1s ease-in-out infinite",
+          opacity: 0.7,
+        }}
+      />
+      Construction de la maquette…
+    </div>
+  );
+}
+
 // Actions sous une réponse d'agent : copier le texte, et régénérer (dernier tour).
 function MessageActions({
   content,
@@ -527,6 +558,7 @@ const MessageBubble = memo(function MessageBubble({
   onConvertToTask,
   taskedItems,
   artifactsLoading,
+  prototypeLoading,
   onRegenerate,
   showActions,
 }: {
@@ -535,6 +567,7 @@ const MessageBubble = memo(function MessageBubble({
   onConvertToTask: (text: string) => void;
   taskedItems: Set<string>;
   artifactsLoading?: boolean;
+  prototypeLoading?: boolean;
   onRegenerate?: () => void;
   showActions?: boolean;
 }) {
@@ -590,6 +623,7 @@ const MessageBubble = memo(function MessageBubble({
               __html: renderMarkdownWithCitations(msg.content, msg.sources, agent.color),
             }}
           />
+          {prototypeLoading && <PrototypeGenerating color={agent.color} />}
           {msg.artifacts && msg.artifacts.length > 0 ? (
             msg.artifacts.map((a, i) => (
               <ArtifactBlock
@@ -1278,7 +1312,11 @@ export function ChatSession({
             setStreamingContent("");
             setStreamingProvider(null);
             setStreamingProviderLabel(undefined);
-            if (assistant.deliverables?.length) setLoadingArtifacts(true);
+            // Pas d'indicateur d'enrichissement si les artefacts sont déjà là :
+            // une maquette arrive avec le message, sans 2e passe à attendre.
+            if (assistant.deliverables?.length && !assistant.artifacts?.length) {
+              setLoadingArtifacts(true);
+            }
             if (evt.title && onTitleChange) onTitleChange(evt.title);
           } else if (evt.t === "artifacts" && evt.artifacts) {
             const artifacts = evt.artifacts;
@@ -1463,6 +1501,10 @@ export function ChatSession({
       }
     : null;
   const displayMessages = inflight ? [...messages, inflight] : messages;
+  // Une maquette est en cours d'écriture : le bloc ```html est ouvert et pas
+  // encore refermé. On le signale sous la prose, faute de quoi rien ne bougerait
+  // à l'écran tant que le modèle écrit son HTML.
+  const prototypeInFlight = !!inflight && hasOpenPrototypeFence(streamingContent);
 
   // Sommaire des relais (mode Accompagné) : un segment par changement d'expert.
   // On mémorise les index-ancres dans un ref pour que le handler de scroll y
@@ -1851,6 +1893,7 @@ export function ChatSession({
                 artifactsLoading={
                   loadingArtifacts && i === displayMessages.length - 1 && m.role === "assistant"
                 }
+                prototypeLoading={prototypeInFlight && i === displayMessages.length - 1}
                 showActions={isLastFinal}
                 onRegenerate={isLastFinal ? handleRegenerate : undefined}
               />

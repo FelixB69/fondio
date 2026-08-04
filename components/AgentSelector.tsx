@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AGENTS, AgentId, PROJECT_TYPES, ProjectType } from "@/lib/data";
+import { AGENTS, AgentId, PANEL_AGENT_IDS, PROJECT_TYPES, ProjectType } from "@/lib/data";
 import { C } from "@/lib/design-tokens";
 import { useIsMobile } from "@/lib/use-responsive";
 import { Icon, IconName } from "./Icon";
@@ -19,6 +19,13 @@ export function AgentSelector({
   const [isPanelMode, setIsPanelMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<AgentId[]>([]);
   const meta = PROJECT_TYPES[type] ?? PROJECT_TYPES.other;
+
+  // Le Maquettiste ne figure pas dans le panel : une maquette au milieu d'un
+  // débat à quatre voix casse la lecture, pour un coût de génération élevé.
+  // Il reste pleinement disponible en session simple.
+  const visibleAgentIds = isPanelMode
+    ? meta.agentIds.filter((id) => PANEL_AGENT_IDS.includes(id))
+    : meta.agentIds;
 
   const toggleAgent = (id: AgentId) => {
     setSelectedIds((prev) =>
@@ -142,6 +149,10 @@ export function AgentSelector({
           </div>
           <button
             onClick={() => {
+              // En passant en panel, on retire une éventuelle sélection d'un
+              // agent qui n'y est pas éligible (sinon il partirait au panel
+              // alors que sa carte vient de disparaître).
+              setSelectedIds((prev) => prev.filter((id) => PANEL_AGENT_IDS.includes(id)));
               setIsPanelMode((p) => !p);
               setSelectedIds([]);
             }}
@@ -181,7 +192,7 @@ export function AgentSelector({
             gap: 14,
           }}
         >
-          {meta.agentIds.map((id) => {
+          {visibleAgentIds.map((id) => {
             const agent = AGENTS[id];
             const isSelected = selectedIds.includes(id);
 
